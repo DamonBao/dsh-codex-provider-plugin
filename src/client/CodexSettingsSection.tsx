@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, Modal, StateDot, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CodexAuthState, CodexLoginMethod } from '../types.ts'
+import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from '../types.ts'
 import type { CodexAuthCardFace } from './controller.ts'
 import type { CodexSettingsKey } from './locales.ts'
 import css from './CodexSettingsSection.module.css'
@@ -59,6 +59,23 @@ export function authLabel(state: CodexAuthState): CodexSettingsKey {
   }
 }
 
+/** Resolve actionable UI copy for one secret-free Host failure reason. */
+export function authFailureLabel(reason: CodexAuthFailureReason): CodexSettingsKey {
+  switch (reason) {
+    case 'account-access': return 'failureAccountAccess'
+    case 'browser-callback': return 'failureBrowserCallback'
+    case 'device-code-disabled': return 'failureDeviceCodeDisabled'
+    case 'network': return 'failureNetwork'
+    case 'token-exchange': return 'failureTokenExchange'
+    case 'unknown': return 'failureUnknown'
+    default: return assertNever(reason)
+  }
+}
+
+function diagnosticCode(reason: CodexAuthFailureReason): string {
+  return `CODEX_AUTH_${reason.replaceAll('-', '_').toUpperCase()}`
+}
+
 function useCopyCode(code: string): { copied: boolean; copy: () => void } {
   const [copied, setCopied] = useState(false)
   const timer = useRef<number | undefined>(undefined)
@@ -104,7 +121,14 @@ function LoginBody({ state, t }: { state: CodexAuthState; t: (key: CodexSettings
     )
   }
   if (state.phase === 'starting') return <p className={css.waiting}>{t('starting')}</p>
-  if (state.phase === 'failed') return <p className={css.error} role="status">{t('actionFailed')}</p>
+  if (state.phase === 'failed') {
+    return (
+      <div className={css.loginFailure} role="status">
+        <p className={css.error}>{t(authFailureLabel(state.reason))}</p>
+        <code className={css.diagnosticCode}>{diagnosticCode(state.reason)}</code>
+      </div>
+    )
+  }
   return null
 }
 

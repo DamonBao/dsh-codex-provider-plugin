@@ -26,6 +26,28 @@ dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin
 dsh web
 ```
 
+## Upgrade
+
+Plugins are installed independently for each dsh profile. Upgrade this plugin in the `web` profile to the newest published version:
+
+```sh
+dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
+```
+
+To install an exact version instead:
+
+```sh
+dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.7 --save-exact
+```
+
+Verify the installed version, restart `dsh web`, and force-refresh the browser so it does not reuse the previous client bundle:
+
+```sh
+dsh plugin --profile web list @jcy2387/dsh-codex-provider-plugin --depth 0
+```
+
+When running from a `deepseek-harness` source checkout, prefix these commands with `pnpm`.
+
 ## Local development installation
 
 ```sh
@@ -62,6 +84,21 @@ Every field is optional:
 - `websocketConnectTimeoutMs`: WebSocket connection timeout.
 - `streamIdleTimeoutMs`: maximum idle interval while waiting for the next stream chunk.
 - `retryPolicy`: standard Harness LLM retry configuration.
+
+## Authentication troubleshooting
+
+The Settings UI reports a stable diagnostic code without returning OAuth responses or tokens to the browser:
+
+| Code | Meaning and next check |
+| --- | --- |
+| `CODEX_AUTH_ACCOUNT_ACCESS` | OpenAI did not issue usable Codex credentials. Check MFA, the selected ChatGPT workspace, and workspace Codex permissions. |
+| `CODEX_AUTH_BROWSER_CALLBACK` | Authorization did not reach the Host. Run the browser on the Host machine and check whether `localhost:1455` is blocked or occupied. |
+| `CODEX_AUTH_DEVICE_CODE_DISABLED` | Enable device-code sign-in in personal ChatGPT security settings or workspace permissions. |
+| `CODEX_AUTH_NETWORK` | Check the Host's proxy, DNS, TLS trust, and firewall access to OpenAI authentication services. |
+| `CODEX_AUTH_TOKEN_EXCHANGE` | Authorization returned but credential exchange failed. Retry, then check the Host clock and proxy. |
+| `CODEX_AUTH_UNKNOWN` | Test official Codex sign-in on the same Host to separate an account/environment failure from a plugin compatibility issue. |
+
+Browser sign-in redirects to `http://localhost:1455/auth/callback`, so it is suitable only when the browser and dsh Host run on the same machine. For a headless Host, use device-code sign-in after enabling it for the account or workspace. See [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth).
 
 ## MVP scope
 

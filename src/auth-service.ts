@@ -8,7 +8,56 @@ import type {
   Models,
 } from '@earendil-works/pi-ai'
 import { CODEX_PROVIDER } from './credential-store.ts'
-import type { CodexAuthState, CodexLoginMethod } from './types.ts'
+import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from './types.ts'
+
+const ACCOUNT_ACCESS_MARKERS = [
+  'access_denied',
+  'accountid',
+  'chatgpt_account_id',
+  'forbidden',
+  'mfa',
+  'organization',
+  'unauthorized',
+  'workspace',
+] as const
+const BROWSER_CALLBACK_MARKERS = [
+  'callback',
+  'eaddrinuse',
+  'missing authorization code',
+  'state mismatch',
+  'localhost:1455',
+] as const
+const NETWORK_MARKERS = [
+  'certificate',
+  'econnrefused',
+  'econnreset',
+  'enotfound',
+  'etimedout',
+  'fetch failed',
+  'network',
+  'socket',
+  'tls',
+] as const
+
+function containsAny(message: string, markers: readonly string[]): boolean {
+  return markers.some(marker => message.includes(marker))
+}
+
+/** Classify a Host-side OAuth exception without returning its potentially sensitive text. */
+export function classifyCodexLoginFailure(error: unknown): CodexAuthFailureReason {
+  const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase()
+  if (message.includes('device code login is not enabled')
+    || message.includes('deviceauth_not_enabled')) return 'device-code-disabled'
+  if (containsAny(message, ACCOUNT_ACCESS_MARKERS) || /\b(?:401|403)\b/.test(message)) {
+    return 'account-access'
+  }
+  if (containsAny(message, BROWSER_CALLBACK_MARKERS)) return 'browser-callback'
+  if (message.includes('token exchange')
+    || message.includes('token response missing fields')
+    || message.includes('invalid_grant')) return 'token-exchange'
+  if (containsAny(message, NETWORK_MARKERS)) return 'network'
+  return 'unknown'
+}
 
 /** Narrow pi-ai surface used by the auth service and its tests. */
 export interface CodexAuthModels {
@@ -102,8 +151,14 @@ export class CodexAuthService {
     active.task = this.models.login(CODEX_PROVIDER, 'oauth', this.interaction(active)).then((credential) => {
       if (credential.type !== 'oauth') throw new Error('Codex OAuth returned a non-OAuth credential')
       this.publish({ phase: 'connected', expiresAt: credential.expires })
-    }).catch(() => {
-      if (!active.controller.signal.aborted) this.publish({ phase: 'failed', reason: 'login-failed' })
+    }).catch((error: unknown) => {
+      if (!active.controller.signal.aborted) {
+        this.publish({
+          phase: 'failed',
+          method: active.method,
+          reason: classifyCodexLoginFailure(error),
+        })
+      }
     }).finally(() => {
       if (this.active === active) this.active = undefined
     })

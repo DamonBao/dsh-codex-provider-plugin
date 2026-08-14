@@ -26,6 +26,28 @@ dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin
 dsh web
 ```
 
+## 升级
+
+插件按 dsh profile 独立安装。将 `web` profile 中的插件升级到最新已发布版本：
+
+```sh
+dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
+```
+
+也可以安装指定版本：
+
+```sh
+dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.7 --save-exact
+```
+
+确认安装版本后重启 `dsh web`，并在浏览器中强制刷新，避免继续使用旧的客户端 bundle：
+
+```sh
+dsh plugin --profile web list @jcy2387/dsh-codex-provider-plugin --depth 0
+```
+
+如果从 `deepseek-harness` 源码目录运行，请在这些命令前加上 `pnpm`。
+
 ## 本地开发安装
 
 ```sh
@@ -62,6 +84,21 @@ pnpm dsh web
 - `websocketConnectTimeoutMs`：WebSocket 建连超时。
 - `streamIdleTimeoutMs`：等待下一段流数据的最大空闲时间。
 - `retryPolicy`：Harness LLM 的标准重试配置。
+
+## 认证排障
+
+设置页会显示稳定的诊断码，但不会把 OAuth 响应正文或 Token 返回浏览器：
+
+| 诊断码 | 含义与下一步检查 |
+| --- | --- |
+| `CODEX_AUTH_ACCOUNT_ACCESS` | OpenAI 没有签发可用的 Codex 凭据。检查 MFA、登录时选择的 ChatGPT 工作区和工作区 Codex 权限。 |
+| `CODEX_AUTH_BROWSER_CALLBACK` | 授权没有到达 Host。确认浏览器运行在 Host 所在机器，并检查 `localhost:1455` 是否被拦截或占用。 |
+| `CODEX_AUTH_DEVICE_CODE_DISABLED` | 在 ChatGPT 个人安全设置或工作区权限中启用设备代码登录。 |
+| `CODEX_AUTH_NETWORK` | 检查 Host 的代理、DNS、TLS 信任和防火墙能否访问 OpenAI 认证服务。 |
+| `CODEX_AUTH_TOKEN_EXCHANGE` | 授权已经返回，但凭据交换失败。重试并检查 Host 系统时间和代理。 |
+| `CODEX_AUTH_UNKNOWN` | 在同一台 Host 上测试官方 Codex 登录，用于区分账号/环境问题与插件兼容问题。 |
+
+浏览器登录会重定向到 `http://localhost:1455/auth/callback`，因此只适合浏览器和 dsh Host 在同一台机器的场景。无头 Host 应在账号或工作区启用相应权限后使用设备代码登录。参见 [OpenAI Codex 认证文档](https://learn.chatgpt.com/docs/auth)。
 
 ## MVP 范围
 
