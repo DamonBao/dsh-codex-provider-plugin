@@ -47,7 +47,7 @@
     <circle cx="43" cy="225" r="8"/>
     <path d="M43 212v5M43 233v5M30 225h5M51 225h5M34 216l4 4M48 230l4 4M52 216l-4 4M38 230l-4 4"/>
   </g>
-  <text x="70" y="237" fill="#ededf0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18">OpenAI Codex</text>
+  <text x="70" y="232" fill="#ededf0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18">OpenAI Codex</text>
   <circle cx="270" cy="225" r="13" fill="#6278ed"/>
   <text x="270" y="231" text-anchor="middle" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16" font-weight="700">1</text>
 
