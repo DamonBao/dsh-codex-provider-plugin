@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
   <title id="title">OpenAI Codex settings in DeepSeek Harness</title>
-  <desc id="desc">Dark-themed DeepSeek Harness settings page with OpenAI Codex selected, showing the Connect Codex button and connection status.</desc>
+  <desc id="desc">Dark-themed DeepSeek Harness settings page with OpenAI Codex selected, showing connected account status and the current weekly usage window.</desc>
   <defs>
     <filter id="panelShadow" x="-20%" y="-20%" width="140%" height="150%">
       <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000000" flood-opacity="0.28"/>
@@ -66,10 +66,8 @@
 
   <!-- Selected navigation item -->
   <rect x="12" y="197" width="276" height="56" rx="14" fill="#49494f" stroke="#151518" stroke-width="4"/>
-  <use href="#openai-logo" x="27" y="209" width="32" height="32" style="color:#f1f1f3"/>
+  <use href="#dsh-settings" x="27" y="209" width="32" height="32" style="color:#f1f1f3"/>
   <text x="70" y="232" fill="#ededf0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18">OpenAI Codex</text>
-  <circle cx="270" cy="225" r="13" fill="#6278ed"/>
-  <text x="270" y="231" text-anchor="middle" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16" font-weight="700">1</text>
 
   <!-- Main content -->
   <text x="368" y="116" fill="#f4f4f6" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="31" font-weight="700">OpenAI Codex</text>
@@ -87,18 +85,25 @@
   <line x1="394" y1="326" x2="1102" y2="326" stroke="#57575d" stroke-width="1"/>
   <text x="394" y="373" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="17">模型上下文上限来自 Codex 模型目录，并直接参与 Harness 自动压缩预算。</text>
 
-  <!-- Callout -->
-  <path d="M274 225 C315 225 327 225 354 225" fill="none" stroke="#7186f1" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="354" cy="225" r="7" fill="#7186f1"/>
-  <rect x="390" y="492" width="680" height="88" rx="16" fill="#353b5c" stroke="#7186f1" stroke-width="1.5"/>
-  <circle cx="426" cy="536" r="19" fill="#7186f1"/>
-  <text x="426" y="543" text-anchor="middle" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="17" font-weight="700">2</text>
-  <text x="462" y="530" fill="#f2f2f6" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19" font-weight="600">登录入口就在这里</text>
-  <text x="462" y="557" fill="#c9cce0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">首次使用时点击“连接 Codex”，再选择浏览器登录或设备代码登录。</text>
+  <!-- Dynamic usage card: only windows currently returned by OpenAI are shown. -->
+  <g filter="url(#panelShadow)">
+    <rect x="368" y="452" width="760" height="174" rx="18" fill="#353538" stroke="#55555b" stroke-width="1.5"/>
+  </g>
+  <text x="394" y="488" fill="#f2f2f4" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19" font-weight="600">Codex 用量</text>
+  <rect x="1000" y="468" width="112" height="34" rx="17" fill="none" stroke="#69696f" stroke-width="1"/>
+  <text x="1056" y="490" text-anchor="middle" fill="#e5e5e8" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="14">刷新用量</text>
+  <text x="394" y="522" fill="#96969d" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="14">套餐</text>
+  <text x="444" y="522" fill="#d4d4d8" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="14">Plus</text>
+  <text x="394" y="554" fill="#ededf0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="15" font-weight="600">7d 用量</text>
+  <text x="1102" y="554" text-anchor="end" fill="#ededf0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="15" font-weight="600">24%</text>
+  <rect x="394" y="566" width="708" height="8" rx="4" fill="#55555b"/>
+  <rect x="394" y="566" width="170" height="8" rx="4" fill="#7186f1"/>
+  <text x="394" y="601" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13">已使用 24%</text>
+  <text x="1102" y="601" text-anchor="end" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13">重置时间 2月 7日 16:00</text>
 
   <!-- Model picker hint -->
-  <rect x="368" y="640" width="760" height="58" rx="12" fill="#303033" stroke="#48484d" stroke-width="1"/>
-  <text x="394" y="676" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">登录成功后，在正常模型选择器中选择</text>
-  <text x="697" y="676" fill="#9eafff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16" font-weight="700">openai-codex</text>
-  <text x="815" y="676" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">下的模型。</text>
+  <rect x="368" y="660" width="760" height="58" rx="12" fill="#303033" stroke="#48484d" stroke-width="1"/>
+  <text x="394" y="696" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">登录成功后，在正常模型选择器中选择</text>
+  <text x="697" y="696" fill="#9eafff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16" font-weight="700">openai-codex</text>
+  <text x="815" y="696" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">下的模型。</text>
 </svg>

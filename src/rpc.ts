@@ -1,20 +1,29 @@
 /** Host dispatcher for the plugin-owned Connection RPC channel. */
 
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { CodexAuthService } from './auth-service.ts'
-import type { CodexLoginMethod } from './types.ts'
+import type { CodexAuthState, CodexLoginMethod, CodexUsageSnapshot } from './types.ts'
 export { CODEX_AUTH_RPC_CHANNEL } from './rpc-contract.ts'
+
+/** Complete Host surface behind the browser-safe plugin channel. */
+export interface CodexRpcService {
+  status(): Promise<CodexAuthState>
+  usage(): Promise<CodexUsageSnapshot | null>
+  login(method: CodexLoginMethod): CodexAuthState
+  cancel(): Promise<CodexAuthState>
+  logout(): Promise<CodexAuthState>
+}
 
 /** Dispatch a decoded Host request without exposing token material. */
 export async function handleCodexAuthRpc(
-  service: Pick<CodexAuthService, 'status' | 'login' | 'cancel' | 'logout'>,
+  service: CodexRpcService,
   endpoint: string,
   payload: unknown,
 ): Promise<RpcResult<unknown>> {
-  if (endpoint === 'status' || endpoint === 'cancel' || endpoint === 'logout') {
+  if (endpoint === 'status' || endpoint === 'usage' || endpoint === 'cancel' || endpoint === 'logout') {
     if (!isEmptyRecord(payload)) return badRequest(`${endpoint} expects an empty payload`)
     try {
       if (endpoint === 'status') return { ok: true, value: await service.status() }
+      if (endpoint === 'usage') return { ok: true, value: await service.usage() }
       if (endpoint === 'cancel') return { ok: true, value: await service.cancel() }
       return { ok: true, value: await service.logout() }
     } catch {

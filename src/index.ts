@@ -23,9 +23,12 @@ import { startCodexIpv6CallbackBridge } from './callback-bridge.ts'
 import { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
 import { codexDispatchProvider } from './provider.ts'
 import { CODEX_AUTH_RPC_CHANNEL, handleCodexAuthRpc } from './rpc.ts'
+import { CodexUsageService } from './usage-service.ts'
 
 export { CodexAuthService } from './auth-service.ts'
 export type { CodexAuthModels } from './auth-service.ts'
+export { CodexUsageService, parseCodexUsagePayload } from './usage-service.ts'
+export type { CodexUsageModels } from './usage-service.ts'
 export type * from './types.ts'
 export { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
 
@@ -159,15 +162,30 @@ export function apply(ctx: Context, config: Config): void {
       )
     },
   )
+  const usage = new CodexUsageService(authModels, credentials)
+  const rpcService = {
+    status: () => auth.status(),
+    usage: async () => {
+      try {
+        return await usage.load()
+      } catch (error) {
+        ctx.logger('dsh-codex-provider').warn(new Error('OpenAI Codex usage lookup failed', { cause: error }))
+        throw error
+      }
+    },
+    login: (method: Parameters<CodexAuthService['login']>[0]) => auth.login(method),
+    cancel: () => auth.cancel(),
+    logout: () => auth.logout(),
+  }
   ctx.effect(() => () => auth.dispose(), '@jcy2387/dsh-codex-provider-plugin: drain OAuth')
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.effect(
       () => connectionCtx.connection.rpc.handle(
         CODEX_AUTH_RPC_CHANNEL,
-        (_endpoint, _payload) => handleCodexAuthRpc(auth, _endpoint, _payload),
+        (_endpoint, _payload) => handleCodexAuthRpc(rpcService, _endpoint, _payload),
         { authority: 'loopback' },
       ),
-      '@jcy2387/dsh-codex-provider-plugin: authentication RPC',
+      '@jcy2387/dsh-codex-provider-plugin: account RPC',
     )
   })
 }

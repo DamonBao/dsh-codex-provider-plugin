@@ -85,6 +85,130 @@
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
+.usagePanel {
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
+  padding: 16px;
+}
+
+.usageHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.usageTitle {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.usageMessage {
+  margin: 14px 0 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.usageFacts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 5px 12px;
+  margin: 14px 0 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.usageFacts dt {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.usageFacts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.usageLimit {
+  margin: 14px 0 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.usageGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.usageWindow {
+  min-width: 0;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 12px;
+}
+
+.usageWindowHead,
+.usageWindowMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usageWindowTitle,
+.usagePercent {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.usageProgress {
+  width: 100%;
+  height: 6px;
+  display: block;
+  overflow: hidden;
+  margin: 10px 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l2);
+  appearance: none;
+}
+
+.usageProgress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.usageProgress::-webkit-progress-value {
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.usageProgress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.usageWindowMeta {
+  align-items: flex-start;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.usageWindowMeta span:last-child {
+  text-align: right;
+}
+
 .error {
   margin: 10px 0 0;
   color: var(--dsw-alias-state-error-primary);
@@ -165,5 +289,15 @@
 
   .cardHead {
     align-items: flex-start;
+  }
+
+  .usageWindowMeta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .usageWindowMeta span:last-child {
+    text-align: left;
   }
 }

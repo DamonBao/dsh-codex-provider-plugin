@@ -21,3 +21,27 @@ export type CodexAuthState =
   | { phase: 'awaiting-device'; verificationUri: string; userCode: string }
   | { phase: 'connected'; expiresAt: number }
   | { phase: 'failed'; method: CodexLoginMethod; reason: CodexAuthFailureReason }
+
+/** One OpenAI-enforced Codex rate-limit window. Epoch timestamps use milliseconds. */
+export interface CodexUsageWindow {
+  usedPercent: number
+  resetAt: number | null
+  limitWindowSeconds: number | null
+}
+
+/** Optional purchased-credit balance returned by the Codex usage service. */
+export interface CodexUsageCredits {
+  hasCredits: boolean
+  unlimited: boolean
+  balance: number | null
+}
+
+/** Browser-safe Codex usage snapshot; OAuth tokens and account ids never cross RPC. */
+export interface CodexUsageSnapshot {
+  fetchedAt: number
+  planType: string | null
+  limitReached: boolean
+  primary: CodexUsageWindow | null
+  secondary: CodexUsageWindow | null
+  credits: CodexUsageCredits | null
+}
