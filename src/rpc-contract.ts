@@ -1,7 +1,14 @@
 /** Browser-safe dedicated Connection RPC contract owned by this plugin. */
 
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from './types.ts'
+import type {
+  CodexAuthFailureReason,
+  CodexAuthState,
+  CodexLoginMethod,
+  CodexUsageCredits,
+  CodexUsageSnapshot,
+  CodexUsageWindow,
+} from './types.ts'
 
 /** Logical channel registered by the Host half and called by the browser half. */
 export const CODEX_AUTH_RPC_CHANNEL = '/dsh-codex-provider'
@@ -9,6 +16,7 @@ export const CODEX_AUTH_RPC_CHANNEL = '/dsh-codex-provider'
 /** Browser-safe authentication RPC face. */
 export interface CodexAuthRpcClient {
   status(signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
+  usage(signal?: AbortSignal): Promise<RpcResult<CodexUsageSnapshot | null>>
   login(method: CodexLoginMethod, signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
   cancel(signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
   logout(signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
@@ -26,7 +34,7 @@ export interface CodexAuthConnectionRpc {
 
 /** Build the browser face over Connection's plugin-owned unary channel. */
 export function createCodexAuthRpcClient(rpc: CodexAuthConnectionRpc): CodexAuthRpcClient {
-  const call = async (
+  const callAuth = async (
     endpoint: string,
     payload: unknown,
     signal?: AbortSignal,
@@ -36,11 +44,19 @@ export function createCodexAuthRpcClient(rpc: CodexAuthConnectionRpc): CodexAuth
     const state = parseCodexAuthState(result.value)
     return state === undefined ? invalidResponse(endpoint) : { ok: true, value: state }
   }
+  const callUsage = async (signal?: AbortSignal): Promise<RpcResult<CodexUsageSnapshot | null>> => {
+    const result = await rpc.call(CODEX_AUTH_RPC_CHANNEL, 'usage', {}, signal)
+    if (!result.ok) return result
+    if (result.value === null) return { ok: true, value: null }
+    const usage = parseCodexUsageSnapshot(result.value)
+    return usage === undefined ? invalidResponse('usage') : { ok: true, value: usage }
+  }
   return {
-    status: signal => call('status', {}, signal),
-    login: (method, signal) => call('login', { method }, signal),
-    cancel: signal => call('cancel', {}, signal),
-    logout: signal => call('logout', {}, signal),
+    status: signal => callAuth('status', {}, signal),
+    usage: callUsage,
+    login: (method, signal) => callAuth('login', { method }, signal),
+    cancel: signal => callAuth('cancel', {}, signal),
+    logout: signal => callAuth('logout', {}, signal),
   }
 }
 
@@ -72,6 +88,63 @@ export function parseCodexAuthState(value: unknown): CodexAuthState | undefined 
         : undefined
     default: return undefined
   }
+}
+
+/** Validate one secret-free usage snapshot returned by the Host. */
+export function parseCodexUsageSnapshot(value: unknown): CodexUsageSnapshot | undefined {
+  if (!isRecord(value)
+    || !isFiniteNumber(value.fetchedAt)
+    || (value.planType !== null && typeof value.planType !== 'string')
+    || typeof value.limitReached !== 'boolean') return undefined
+  const primary = parseUsageWindow(value.primary)
+  const secondary = parseUsageWindow(value.secondary)
+  const credits = parseUsageCredits(value.credits)
+  if (primary === undefined || secondary === undefined || credits === undefined) return undefined
+  if (primary === null && secondary === null && value.planType === null && credits === null) return undefined
+  return {
+    fetchedAt: value.fetchedAt,
+    planType: value.planType,
+    limitReached: value.limitReached,
+    primary,
+    secondary,
+    credits,
+  }
+}
+
+function parseUsageWindow(value: unknown): CodexUsageWindow | null | undefined {
+  if (value === null) return null
+  if (!isRecord(value)
+    || !isFiniteNumber(value.usedPercent)
+    || value.usedPercent < 0
+    || value.usedPercent > 100
+    || !isNullablePositiveNumber(value.resetAt)
+    || !isNullablePositiveNumber(value.limitWindowSeconds)) return undefined
+  return {
+    usedPercent: value.usedPercent,
+    resetAt: value.resetAt,
+    limitWindowSeconds: value.limitWindowSeconds,
+  }
+}
+
+function parseUsageCredits(value: unknown): CodexUsageCredits | null | undefined {
+  if (value === null) return null
+  if (!isRecord(value)
+    || typeof value.hasCredits !== 'boolean'
+    || typeof value.unlimited !== 'boolean'
+    || (value.balance !== null && (!isFiniteNumber(value.balance) || value.balance < 0))) return undefined
+  return {
+    hasCredits: value.hasCredits,
+    unlimited: value.unlimited,
+    balance: value.balance,
+  }
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isNullablePositiveNumber(value: unknown): value is number | null {
+  return value === null || (isFiniteNumber(value) && value > 0)
 }
 
 function invalidResponse(endpoint: string): RpcResult<never> {

@@ -3,7 +3,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CodexAuthRpcClient } from '../rpc-contract.ts'
-import type { CodexAuthState, CodexLoginMethod } from '../types.ts'
+import type { CodexAuthState, CodexLoginMethod, CodexUsageSnapshot } from '../types.ts'
 
 /** One UI action crossing the wire. */
 export type CodexAuthAction = 'login' | 'cancel' | 'logout'
@@ -12,6 +12,8 @@ export type CodexAuthAction = 'login' | 'cancel' | 'logout'
 export interface CodexAuthCardState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   auth: CodexAuthState
+  usageStatus: 'idle' | 'loading' | 'ready' | 'error'
+  usage: CodexUsageSnapshot | null
   action: CodexAuthAction | null
   actionFailed: boolean
 }
@@ -34,6 +36,8 @@ export class CodexAuthCardController {
   readonly store = createSnapshotStore<CodexAuthCardState>({
     status: 'idle',
     auth: { phase: 'disconnected' },
+    usageStatus: 'idle',
+    usage: null,
     action: null,
     actionFailed: false,
   })
@@ -42,28 +46,46 @@ export class CodexAuthCardController {
 
   constructor(private readonly remote: CodexAuthRpcClient) {}
 
-  /** Read current state; the latest invocation wins. */
+  /** Read auth and usage concurrently; the latest invocation wins. */
   async load(silent = false): Promise<void> {
     const generation = ++this.loadGeneration
     if (!silent) {
       this.store.update((state) => {
         state.status = 'loading'
+        state.usageStatus = 'loading'
         state.actionFailed = false
       })
     }
-    try {
-      const result = await this.remote.status()
-      if (generation !== this.loadGeneration) return
-      if (!result.ok) throw new Error('Codex authentication RPC failed')
-      this.accept(result.value)
-    } catch {
-      if (generation !== this.loadGeneration) return
-      if (silent) return
-      this.store.update((state) => {
+    // Start both calls together, but publish auth as soon as it arrives so a
+    // slow usage endpoint never prolongs the fast login-status polling loop.
+    const authTask = this.remote.status().catch(() => undefined)
+    const usageTask = this.remote.usage().catch(() => undefined)
+    const authResult = await authTask
+    if (generation !== this.loadGeneration) return
+    this.store.update((state) => {
+      if (authResult?.ok === true) {
+        state.status = 'ready'
+        state.auth = authResult.value
+        state.action = null
+        state.actionFailed = false
+        if (authResult.value.phase === 'connected' && state.usage === null) state.usageStatus = 'loading'
+      } else if (!silent) {
         state.status = 'error'
         state.actionFailed = false
-      })
-    }
+      }
+      if (state.auth.phase !== 'connected') state.usage = null
+    })
+
+    const usageResult = await usageTask
+    if (generation !== this.loadGeneration) return
+    this.store.update((state) => {
+      if (usageResult?.ok === true) {
+        state.usageStatus = 'ready'
+        state.usage = state.auth.phase === 'connected' ? usageResult.value : null
+      } else {
+        state.usageStatus = 'error'
+      }
+    })
   }
 
   private accept(auth: CodexAuthState): void {
@@ -72,6 +94,10 @@ export class CodexAuthCardController {
       state.auth = auth
       state.action = null
       state.actionFailed = false
+      if (auth.phase !== 'connected') {
+        state.usageStatus = 'idle'
+        state.usage = null
+      }
     })
   }
 
@@ -92,6 +118,7 @@ export class CodexAuthCardController {
     operation: () => ReturnType<CodexAuthRpcClient['status']>,
   ): Promise<void> {
     if (this.store.getSnapshot().action !== null) return
+    ++this.loadGeneration
     this.store.update((state) => {
       state.action = action
       state.actionFailed = false

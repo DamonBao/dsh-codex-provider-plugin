@@ -12,8 +12,10 @@
 
 一个 npm 包同时包含两张运行面：
 
-- **Host：** 注册 `openai-codex` LLM adapter，通过 Harness credential provider 保存 OAuth 状态，并提供插件自有的 loopback-only Connection RPC。
-- **Browser：** 通过 `dsh.client` manifest 加载原生设置页，只接收无敏感信息的认证状态；Token 不进入浏览器。
+- **Host：** 注册 `openai-codex` LLM adapter，通过 Harness credential provider 保存 OAuth 状态、读取账号用量，并提供插件自有的 loopback-only Connection RPC。
+- **Browser：** 通过 `dsh.client` manifest 加载原生设置页，只接收经过校验且不含敏感信息的认证与用量快照；Token 和账号 ID 都不会进入浏览器。
+
+Harness 当前只提供扁平的 Settings section 列表，Models 页面也没有外部内容 Slot。因此插件保持为紧随**模型**之后的独立 **OpenAI Codex** 页面，不修改 Harness，也不做脆弱的 DOM 注入。
 
 `cordis.patch.yml` 只插入一个由本包拥有的插件行。本包不导入或修改 `@deepseek-ai/dsh-api-remotes`，安装时不需要 Harness 增加静态 Remote 注册。
 
@@ -26,6 +28,24 @@ dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin
 dsh web
 ```
 
+## 设置 OpenAI Codex
+
+> 本插件使用 ChatGPT OAuth 登录，不需要 `OPENAI_API_KEY`，也不是 OpenAI Platform API Key 集成。
+
+设置页大致如下：
+
+<p align="center">
+  <img src="./docs/images/openai-codex-settings.svg" alt="DeepSeek Harness 中的 OpenAI Codex 设置页" width="900">
+</p>
+
+1. 执行 `dsh web` 启动 Web UI。
+2. 打开**设置 → OpenAI Codex**，点击**连接 Codex**。
+3. 选择**浏览器登录**，使用 ChatGPT 账号完成授权；如果 Host 是无头或远程环境，则选择**设备代码登录**。
+4. 状态变为**已连接**后，页面会显示 OpenAI 当前返回的用量周期，并每 60 秒刷新一次。接口没有返回的周期不会显示，插件不会硬编码 5 小时限制。
+5. 在正常的模型选择器中选择 `openai-codex` 下的模型。安装插件不会自动修改默认模型。
+
+浏览器登录要求浏览器和 dsh Host 在同一台机器上运行。设备代码登录可能需要先在 ChatGPT 安全设置或工作区权限中启用。账号或工作区必须拥有 Codex 访问权限；模型可用性和配额由 OpenAI 控制。用量数据来自 OpenAI 的 ChatGPT 账号接口，可能随其服务变化。
+
 ## 升级
 
 插件按 dsh profile 独立安装。将 `web` profile 中的插件升级到最新已发布版本：
@@ -37,7 +57,7 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 也可以安装指定版本：
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.7 --save-exact
+dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
 ```
 
 确认安装版本后重启 `dsh web`，并在浏览器中强制刷新，避免继续使用旧的客户端 bundle：
@@ -103,9 +123,9 @@ pnpm dsh web
 
 浏览器登录会重定向到 `http://localhost:1455/auth/callback`，因此只适合浏览器和 dsh Host 在同一台机器的场景。启动 pi-ai 前，插件会先确认 `127.0.0.1:1455` 可用；如果已被其他进程占用，会立即以 `CODEX_AUTH_BROWSER_CALLBACK` 失败。浏览器登录进行期间，本插件还会打开一个 IPv6-only 的 `[::1]:1455` 监听器，把原始回调路径和查询参数转发到 IPv4 上的 pi-ai，并在本次登录结束后关闭。它不会监听局域网地址。完整的 provider 异常只保留在 Host 日志中，浏览器只接收上表中的诊断码。无头 Host 应在账号或工作区启用相应权限后使用设备代码登录。参见 [OpenAI Codex 认证文档](https://learn.chatgpt.com/docs/auth)。
 
-## MVP 范围
+## 当前范围
 
-MVP 包含 Provider、OAuth 生命周期、原生设置 UI、模型目录，以及压缩使用的上下文元数据。当前版本暂不读取或展示 Codex 剩余用量；该能力应通过独立、由插件拥有且不含敏感信息的 RPC 接入 ChatGPT usage endpoint。
+插件包含 Provider、OAuth 生命周期、原生设置 UI、模型目录、压缩使用的上下文元数据和 Codex 用量展示。Host 使用刷新后的 OAuth 凭据请求 `https://chatgpt.com/backend-api/wham/usage`，校验响应后，只通过 loopback-only RPC 返回套餐、用量百分比、重置时间和可选的额度余额。UI 只渲染接口实际返回的周期，因此不会假设存在 5 小时限制。
 
 ## 开发
 

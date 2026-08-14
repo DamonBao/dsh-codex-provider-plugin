@@ -12,8 +12,10 @@ This package does not modify the `deepseek-harness` source tree and does not run
 
 One npm package ships two runtime faces:
 
-- **Host:** registers the `openai-codex` LLM adapter, stores OAuth state through the Harness credential provider, and exposes a plugin-owned, loopback-only Connection RPC.
-- **Browser:** loads through the `dsh.client` manifest and registers a native Settings page. It receives secret-free authentication state only; tokens never enter the browser.
+- **Host:** registers the `openai-codex` LLM adapter, stores OAuth state through the Harness credential provider, fetches account usage, and exposes a plugin-owned, loopback-only Connection RPC.
+- **Browser:** loads through the `dsh.client` manifest and registers a native Settings page. It receives only validated, secret-free authentication and usage snapshots; tokens and account ids never enter the browser.
+
+Harness currently exposes Settings sections as a flat list and the Models page has no external content slot. The plugin therefore stays on an independent **OpenAI Codex** page ordered immediately after **Models**, rather than patching Harness or injecting brittle DOM content.
 
 `cordis.patch.yml` inserts one self-owned plugin row. The package neither imports nor modifies `@deepseek-ai/dsh-api-remotes`, so installation requires no static Remote registration in Harness.
 
@@ -26,6 +28,24 @@ dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin
 dsh web
 ```
 
+## Set up OpenAI Codex
+
+> This plugin uses ChatGPT OAuth, not an `OPENAI_API_KEY` or OpenAI Platform API key.
+
+The settings page looks like this:
+
+<p align="center">
+  <img src="./docs/images/openai-codex-settings.svg" alt="OpenAI Codex settings page in DeepSeek Harness" width="900">
+</p>
+
+1. Start the Web UI with `dsh web`.
+2. Open **Settings → OpenAI Codex** and click **Connect Codex**.
+3. Choose **Browser sign-in** and authorize with your ChatGPT account, or choose **Device code sign-in** for a headless/remote Host.
+4. After the status becomes **Connected**, the page displays the usage windows currently returned by OpenAI and refreshes them every 60 seconds. Removed or unavailable windows are not shown; no five-hour limit is hardcoded.
+5. Select a model under `openai-codex` in the normal model picker. Installing the plugin does not change the default model.
+
+Browser sign-in requires the browser and dsh Host to run on the same machine. Device-code sign-in may need to be enabled in ChatGPT security settings or workspace permissions. Your account or workspace must have Codex access; model availability and quotas are controlled by OpenAI. Usage comes from OpenAI's account-scoped ChatGPT endpoint and may change with that service.
+
 ## Upgrade
 
 Plugins are installed independently for each dsh profile. Upgrade this plugin in the `web` profile to the newest published version:
@@ -37,7 +57,7 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 To install an exact version instead:
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.7 --save-exact
+dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
 ```
 
 Verify the installed version, restart `dsh web`, and force-refresh the browser so it does not reuse the previous client bundle:
@@ -103,9 +123,9 @@ The Settings UI reports a stable diagnostic code without returning OAuth respons
 
 Browser sign-in redirects to `http://localhost:1455/auth/callback`, so it is suitable only when the browser and dsh Host run on the same machine. Before starting pi-ai, the plugin verifies that `127.0.0.1:1455` is available and fails immediately with `CODEX_AUTH_BROWSER_CALLBACK` when another process owns it. While browser login is active, it also opens an IPv6-only `[::1]:1455` listener that redirects the exact callback path and query to pi-ai on IPv4, then closes it when the attempt ends. It never listens on a LAN address. Full provider errors stay in the Host log; the browser receives only the diagnostic codes above. For a headless Host, use device-code sign-in after enabling it for the account or workspace. See [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth).
 
-## MVP scope
+## Current scope
 
-The MVP includes the provider, OAuth lifecycle, native Settings UI, model catalog, and context metadata used by compaction. It does not yet fetch or display remaining Codex quota. That feature should use a separate, plugin-owned secret-free RPC over the ChatGPT usage endpoint.
+The plugin includes the provider, OAuth lifecycle, native Settings UI, model catalog, compaction metadata, and Codex usage display. The Host calls `https://chatgpt.com/backend-api/wham/usage` with the refreshed OAuth credential, validates the response, and sends only plan, window percentages, reset timestamps, and optional credit balance over its loopback-only RPC. The UI renders only windows present in the response, so it does not assume a five-hour limit.
 
 ## Development
 

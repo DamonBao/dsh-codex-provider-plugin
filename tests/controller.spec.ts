@@ -1,0 +1,98 @@
+import { describe, expect, it, vi } from 'vitest'
+
+vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+  createSnapshotStore: <T>(initial: T) => {
+    let state = structuredClone(initial)
+    const listeners = new Set<() => void>()
+    return {
+      getSnapshot: () => state,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+      update: (mutate: (draft: T) => void) => {
+        state = structuredClone(state)
+        mutate(state)
+        for (const listener of listeners) listener()
+      },
+    }
+  },
+}))
+
+import { CodexAuthCardController } from '../src/client/controller.ts'
+import type { CodexAuthRpcClient } from '../src/rpc-contract.ts'
+import type { CodexAuthState, CodexUsageSnapshot } from '../src/types.ts'
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+function remote(overrides: Partial<CodexAuthRpcClient>): CodexAuthRpcClient {
+  const disconnected: CodexAuthState = { phase: 'disconnected' }
+  return {
+    status: async () => ({ ok: true, value: disconnected }),
+    usage: async () => ({ ok: true, value: null }),
+    login: async () => ({ ok: true, value: { phase: 'starting', method: 'browser' } }),
+    cancel: async () => ({ ok: true, value: disconnected }),
+    logout: async () => ({ ok: true, value: disconnected }),
+    ...overrides,
+  }
+}
+
+const USAGE: CodexUsageSnapshot = {
+  fetchedAt: 42,
+  planType: 'plus',
+  limitReached: false,
+  primary: null,
+  secondary: { usedPercent: 24, resetAt: 1_700_000_000_000, limitWindowSeconds: 604_800 },
+  credits: null,
+}
+
+describe('CodexAuthCardController', () => {
+  it('publishes connected auth without waiting for a slow usage request', async () => {
+    const usage = deferred<Awaited<ReturnType<CodexAuthRpcClient['usage']>>>()
+    const controller = new CodexAuthCardController(remote({
+      status: vi.fn(async () => ({ ok: true as const, value: { phase: 'connected' as const, expiresAt: 100 } })),
+      usage: vi.fn(() => usage.promise),
+    }))
+
+    const loading = controller.load()
+    await vi.waitFor(() => {
+      expect(controller.store.getSnapshot()).toMatchObject({
+        status: 'ready',
+        auth: { phase: 'connected' },
+        usageStatus: 'loading',
+      })
+    })
+
+    usage.resolve({ ok: true, value: USAGE })
+    await loading
+    expect(controller.store.getSnapshot()).toMatchObject({ usageStatus: 'ready', usage: USAGE })
+  })
+
+  it('does not let a stale load resurrect auth after logout', async () => {
+    const status = deferred<Awaited<ReturnType<CodexAuthRpcClient['status']>>>()
+    const usage = deferred<Awaited<ReturnType<CodexAuthRpcClient['usage']>>>()
+    const controller = new CodexAuthCardController(remote({
+      status: vi.fn(() => status.promise),
+      usage: vi.fn(() => usage.promise),
+    }))
+
+    const loading = controller.load()
+    controller.logout()
+    await vi.waitFor(() => {
+      expect(controller.store.getSnapshot().auth).toEqual({ phase: 'disconnected' })
+      expect(controller.store.getSnapshot().action).toBeNull()
+    })
+
+    status.resolve({ ok: true, value: { phase: 'connected', expiresAt: 100 } })
+    usage.resolve({ ok: true, value: USAGE })
+    await loading
+    expect(controller.store.getSnapshot()).toMatchObject({
+      auth: { phase: 'disconnected' },
+      usage: null,
+    })
+  })
+})

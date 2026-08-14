@@ -5,16 +5,29 @@ import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, Modal, StateDot, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from '../types.ts'
-import type { CodexAuthCardFace } from './controller.ts'
+import type {
+  CodexAuthFailureReason,
+  CodexAuthState,
+  CodexLoginMethod,
+  CodexUsageWindow,
+} from '../types.ts'
+import type { CodexAuthCardFace, CodexAuthCardState } from './controller.ts'
 import type { CodexSettingsKey } from './locales.ts'
+import { formatResetTime, formatUsageNumber } from './locale-format.ts'
+import { OpenAILogo } from './OpenAILogo.tsx'
 import css from './CodexSettingsSection.module.css'
+
+/** Plugin-owned dependencies bound into the Settings section. */
+export interface CodexSettingsInjected extends CodexAuthCardFace {
+  /** Active DSH locale id, read at render time so date/number formatting follows language changes. */
+  getLocale: () => string
+}
 
 /** Props bound by the Settings section slot. */
 export type CodexSettingsSectionProps =
   PropsRuntime<'settings.section'>
   & PropsLocale<'settings.codexProvider'>
-  & InjectFace<CodexAuthCardFace>
+  & InjectFace<CodexSettingsInjected>
 
 function assertNever(value: never): never {
   throw new Error(`unhandled Codex auth state: ${JSON.stringify(value)}`)
@@ -133,9 +146,132 @@ function LoginBody({ state, t }: { state: CodexAuthState; t: (key: CodexSettings
   return null
 }
 
+type Translate = (key: CodexSettingsKey) => string
+
+function formatWindowDuration(seconds: number | null): string | null {
+  if (seconds === null) return null
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`
+  return `${Math.max(1, Math.round(seconds / 60))}m`
+}
+
+function usageWindowTitle(window: CodexUsageWindow, fallback: CodexSettingsKey, t: Translate): string {
+  const duration = formatWindowDuration(window.limitWindowSeconds)
+  return duration === null ? t(fallback) : `${duration} ${t('usageWindow')}`
+}
+
+function UsageWindowRow({
+  window,
+  fallback,
+  locale,
+  t,
+}: {
+  window: CodexUsageWindow
+  fallback: CodexSettingsKey
+  locale: string
+  t: Translate
+}): ReactNode {
+  const title = usageWindowTitle(window, fallback, t)
+  const reset = formatResetTime(window.resetAt, locale)
+  return (
+    <div className={css.usageWindow}>
+      <div className={css.usageWindowHead}>
+        <span className={css.usageWindowTitle}>{title}</span>
+        <span className={css.usagePercent}>{Math.round(window.usedPercent)}%</span>
+      </div>
+      <progress
+        className={css.usageProgress}
+        max={100}
+        value={window.usedPercent}
+        aria-label={`${title}: ${t('usedLabel')} ${Math.round(window.usedPercent)}%`}
+      />
+      <div className={css.usageWindowMeta}>
+        <span>{t('usedLabel')} {Math.round(window.usedPercent)}%</span>
+        {reset === null ? null : <span>{t('resetsLabel')} <time dateTime={new Date(window.resetAt ?? 0).toISOString()}>{reset}</time></span>}
+      </div>
+    </div>
+  )
+}
+
+function UsagePanel({
+  state,
+  locale,
+  t,
+  refresh,
+}: {
+  state: CodexAuthCardState
+  locale: string
+  t: Translate
+  refresh: () => void
+}): ReactNode {
+  const usage = state.usage
+  const credits = usage?.credits
+  const creditLabel = credits?.unlimited === true
+    ? t('unlimitedCredits')
+    : credits?.hasCredits === true && credits.balance !== null
+      ? formatUsageNumber(credits.balance, locale)
+      : null
+  return (
+    <div className={css.usagePanel}>
+      <div className={css.usageHead}>
+        <h3 className={css.usageTitle}>{t('usageTitle')}</h3>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={state.usageStatus === 'loading'}
+          onClick={refresh}
+        >
+          {t('refreshUsage')}
+        </Button>
+      </div>
+      {state.usageStatus === 'loading' && usage === null
+        ? <p className={css.usageMessage}>{t('usageLoading')}</p>
+        : null}
+      {usage === null && state.usageStatus !== 'loading'
+        ? <p className={css.error} role="status">{t('usageUnavailable')}</p>
+        : null}
+      {usage === null
+        ? null
+        : (
+          <>
+            {usage.planType === null && creditLabel === null
+              ? null
+              : (
+                <dl className={css.usageFacts}>
+                  {usage.planType === null
+                    ? null
+                    : <><dt>{t('planLabel')}</dt><dd>{usage.planType}</dd></>}
+                  {creditLabel === null
+                    ? null
+                    : <><dt>{t('creditsLabel')}</dt><dd>{creditLabel}</dd></>}
+                </dl>
+              )}
+            {usage.limitReached ? <p className={css.usageLimit} role="status">{t('limitReached')}</p> : null}
+            {usage.primary === null && usage.secondary === null
+              ? null
+              : (
+                <div className={css.usageGrid}>
+                  {usage.primary === null
+                    ? null
+                    : <UsageWindowRow window={usage.primary} fallback="primaryWindow" locale={locale} t={t} />}
+                  {usage.secondary === null
+                    ? null
+                    : <UsageWindowRow window={usage.secondary} fallback="secondaryWindow" locale={locale} t={t} />}
+                </div>
+              )}
+            {state.usageStatus === 'error'
+              ? <p className={css.error} role="status">{t('usageUnavailable')}</p>
+              : null}
+          </>
+        )}
+    </div>
+  )
+}
+
 /** Render the external provider's independent Settings section. */
 export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNode {
   const { t } = props
+  const locale = props.getLocale()
   const state = props.useCodexAuth(snapshot => snapshot)
   const [loginOpen, setLoginOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
@@ -150,8 +286,11 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
     return () => { window.clearInterval(timer) }
   }, [active, props.refresh])
   useEffect(() => {
-    if (state.auth.phase === 'connected') setLoginOpen(false)
-  }, [state.auth.phase])
+    if (state.auth.phase !== 'connected') return
+    setLoginOpen(false)
+    const timer = window.setInterval(props.refresh, 60_000)
+    return () => { window.clearInterval(timer) }
+  }, [props.refresh, state.auth.phase])
 
   const closeLogin = (): void => {
     if (closeState.current.action === 'login') return
@@ -188,7 +327,10 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
       <div className={css.card}>
         <div className={css.cardHead}>
           <div className={css.identity}>
-            <span className={css.providerName}>{t('title')}</span>
+            <div className={css.providerLine}>
+              <OpenAILogo className={css.providerIcon} />
+              <span className={css.providerName}>{t('title')}</span>
+            </div>
             <span className={css.status} role="status">
               <StateDot state={authDot(state.auth)} />
               {state.status === 'loading' || state.status === 'idle' ? t('loading') : t(authLabel(state.auth))}
@@ -223,6 +365,10 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
         {state.status === 'error' ? <p className={css.error} role="status">{t('loadFailed')}</p> : null}
         {state.actionFailed ? <p className={css.error} role="status">{t('actionFailed')}</p> : null}
       </div>
+
+      {state.auth.phase === 'connected'
+        ? <UsagePanel state={state} locale={locale} t={t} refresh={props.load} />
+        : null}
 
       <Modal
         open={props.isLoopback && (loginOpen || active || state.action === 'login') && state.auth.phase !== 'connected'}
