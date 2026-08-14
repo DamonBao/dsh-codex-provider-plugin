@@ -8,6 +8,7 @@ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from '../types.ts'
 import type { CodexAuthCardFace } from './controller.ts'
 import type { CodexSettingsKey } from './locales.ts'
+import { OpenAILogo } from './OpenAILogo.tsx'
 import css from './CodexSettingsSection.module.css'
 
 /** Props bound by the Settings section slot. */
@@ -188,7 +189,10 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
       <div className={css.card}>
         <div className={css.cardHead}>
           <div className={css.identity}>
-            <span className={css.providerName}>{t('title')}</span>
+            <div className={css.providerLine}>
+              <OpenAILogo className={css.providerIcon} />
+              <span className={css.providerName}>{t('title')}</span>
+            </div>
             <span className={css.status} role="status">
               <StateDot state={authDot(state.auth)} />
               {state.status === 'loading' || state.status === 'idle' ? t('loading') : t(authLabel(state.auth))}

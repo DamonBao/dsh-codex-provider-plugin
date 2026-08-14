@@ -78,7 +78,8 @@
   <g filter="url(#panelShadow)">
     <rect x="368" y="204" width="760" height="224" rx="18" fill="#353538" stroke="#55555b" stroke-width="1.5"/>
   </g>
-  <text x="394" y="246" fill="#f2f2f4" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="21" font-weight="600">OpenAI Codex</text>
+  <use href="#openai-logo" x="394" y="222" width="24" height="24" style="color:#f2f2f4"/>
+  <text x="426" y="246" fill="#f2f2f4" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="21" font-weight="600">OpenAI Codex</text>
   <circle cx="402" cy="284" r="5" fill="#36d878"/>
   <text x="420" y="291" fill="#d0d0d4" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="17">已连接</text>
   <rect x="1000" y="232" width="112" height="38" rx="19" fill="url(#button)" stroke="#69696f" stroke-width="1"/>
