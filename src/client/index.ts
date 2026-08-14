@@ -6,8 +6,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { createCodexAuthRpcClient } from '../rpc-contract.ts'
 import { CodexSettingsSection } from './CodexSettingsSection.tsx'
+import type { CodexSettingsInjected } from './CodexSettingsSection.tsx'
 import { CodexAuthCardController } from './controller.ts'
-import type { CodexAuthCardFace } from './controller.ts'
 import { en, zh, type CodexSettingsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -27,7 +27,10 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), '@jcy2387/dsh-codex-provider-plugin: dictionaries')
   const connection = ctx.get('connection') as ConnectionHandle
   const controller = new CodexAuthCardController(createCodexAuthRpcClient(connection.rpc))
-  const face: CodexAuthCardFace = controller.face(connection.isLoopback)
+  const face: CodexSettingsInjected = {
+    ...controller.face(connection.isLoopback),
+    getLocale: () => ctx.locale.getLocale().active,
+  }
   const t = ctx.locale.bind(NS)
 
   ctx.on('connection/reset', () => { void controller.load() })
@@ -37,6 +40,6 @@ export function apply(ctx: ClientContext): void {
     order: 11,
     label: () => t('title'),
     locale: NS,
-    inject: (): CodexAuthCardFace => face,
+    inject: (): CodexSettingsInjected => face,
   }, CodexSettingsSection))
 }

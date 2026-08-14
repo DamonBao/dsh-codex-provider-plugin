@@ -13,14 +13,21 @@ import type {
 } from '../types.ts'
 import type { CodexAuthCardFace, CodexAuthCardState } from './controller.ts'
 import type { CodexSettingsKey } from './locales.ts'
+import { formatResetTime, formatUsageNumber } from './locale-format.ts'
 import { OpenAILogo } from './OpenAILogo.tsx'
 import css from './CodexSettingsSection.module.css'
+
+/** Plugin-owned dependencies bound into the Settings section. */
+export interface CodexSettingsInjected extends CodexAuthCardFace {
+  /** Active DSH locale id, read at render time so date/number formatting follows language changes. */
+  getLocale: () => string
+}
 
 /** Props bound by the Settings section slot. */
 export type CodexSettingsSectionProps =
   PropsRuntime<'settings.section'>
   & PropsLocale<'settings.codexProvider'>
-  & InjectFace<CodexAuthCardFace>
+  & InjectFace<CodexSettingsInjected>
 
 function assertNever(value: never): never {
   throw new Error(`unhandled Codex auth state: ${JSON.stringify(value)}`)
@@ -148,11 +155,6 @@ function formatWindowDuration(seconds: number | null): string | null {
   return `${Math.max(1, Math.round(seconds / 60))}m`
 }
 
-function formatResetTime(timestamp: number | null): string | null {
-  if (timestamp === null) return null
-  return new Date(timestamp).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-}
-
 function usageWindowTitle(window: CodexUsageWindow, fallback: CodexSettingsKey, t: Translate): string {
   const duration = formatWindowDuration(window.limitWindowSeconds)
   return duration === null ? t(fallback) : `${duration} ${t('usageWindow')}`
@@ -161,14 +163,16 @@ function usageWindowTitle(window: CodexUsageWindow, fallback: CodexSettingsKey, 
 function UsageWindowRow({
   window,
   fallback,
+  locale,
   t,
 }: {
   window: CodexUsageWindow
   fallback: CodexSettingsKey
+  locale: string
   t: Translate
 }): ReactNode {
   const title = usageWindowTitle(window, fallback, t)
-  const reset = formatResetTime(window.resetAt)
+  const reset = formatResetTime(window.resetAt, locale)
   return (
     <div className={css.usageWindow}>
       <div className={css.usageWindowHead}>
@@ -191,10 +195,12 @@ function UsageWindowRow({
 
 function UsagePanel({
   state,
+  locale,
   t,
   refresh,
 }: {
   state: CodexAuthCardState
+  locale: string
   t: Translate
   refresh: () => void
 }): ReactNode {
@@ -203,7 +209,7 @@ function UsagePanel({
   const creditLabel = credits?.unlimited === true
     ? t('unlimitedCredits')
     : credits?.hasCredits === true && credits.balance !== null
-      ? credits.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      ? formatUsageNumber(credits.balance, locale)
       : null
   return (
     <div className={css.usagePanel}>
@@ -247,10 +253,10 @@ function UsagePanel({
                 <div className={css.usageGrid}>
                   {usage.primary === null
                     ? null
-                    : <UsageWindowRow window={usage.primary} fallback="primaryWindow" t={t} />}
+                    : <UsageWindowRow window={usage.primary} fallback="primaryWindow" locale={locale} t={t} />}
                   {usage.secondary === null
                     ? null
-                    : <UsageWindowRow window={usage.secondary} fallback="secondaryWindow" t={t} />}
+                    : <UsageWindowRow window={usage.secondary} fallback="secondaryWindow" locale={locale} t={t} />}
                 </div>
               )}
             {state.usageStatus === 'error'
@@ -265,6 +271,7 @@ function UsagePanel({
 /** Render the external provider's independent Settings section. */
 export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNode {
   const { t } = props
+  const locale = props.getLocale()
   const state = props.useCodexAuth(snapshot => snapshot)
   const [loginOpen, setLoginOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
@@ -360,7 +367,7 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
       </div>
 
       {state.auth.phase === 'connected'
-        ? <UsagePanel state={state} t={t} refresh={props.load} />
+        ? <UsagePanel state={state} locale={locale} t={t} refresh={props.load} />
         : null}
 
       <Modal
