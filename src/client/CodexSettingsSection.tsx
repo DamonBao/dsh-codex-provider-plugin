@@ -221,7 +221,7 @@ function UsagePanel({
       {state.usageStatus === 'loading' && usage === null
         ? <p className={css.usageMessage}>{t('usageLoading')}</p>
         : null}
-      {usage === null && state.usageStatus === 'error'
+      {usage === null && state.usageStatus !== 'loading'
         ? <p className={css.error} role="status">{t('usageUnavailable')}</p>
         : null}
       {usage === null
