@@ -1,7 +1,7 @@
 /** Browser-safe dedicated Connection RPC contract owned by this plugin. */
 
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { CodexAuthState, CodexLoginMethod } from './types.ts'
+import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from './types.ts'
 
 /** Logical channel registered by the Host half and called by the browser half. */
 export const CODEX_AUTH_RPC_CHANNEL = '/dsh-codex-provider'
@@ -67,7 +67,9 @@ export function parseCodexAuthState(value: unknown): CodexAuthState | undefined 
         ? { phase: 'connected', expiresAt: value.expiresAt }
         : undefined
     case 'failed':
-      return value.reason === 'login-failed' ? { phase: 'failed', reason: 'login-failed' } : undefined
+      return isLoginMethod(value.method) && isFailureReason(value.reason)
+        ? { phase: 'failed', method: value.method, reason: value.reason }
+        : undefined
     default: return undefined
   }
 }
@@ -81,6 +83,19 @@ function invalidResponse(endpoint: string): RpcResult<never> {
       details: {},
     },
   }
+}
+
+function isFailureReason(value: unknown): value is CodexAuthFailureReason {
+  return value === 'account-access'
+    || value === 'browser-callback'
+    || value === 'device-code-disabled'
+    || value === 'network'
+    || value === 'token-exchange'
+    || value === 'unknown'
+}
+
+function isLoginMethod(value: unknown): value is CodexLoginMethod {
+  return value === 'browser' || value === 'device'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

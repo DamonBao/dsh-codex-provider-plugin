@@ -79,6 +79,23 @@
   line-height: 1.5;
 }
 
+.loginFailure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.diagnosticCode {
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 4px 7px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  user-select: all;
+}
+
 .loginBody {
   display: flex;
   flex-direction: column;

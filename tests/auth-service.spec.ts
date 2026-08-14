@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthInteraction, Credential, CredentialStore } from '@earendil-works/pi-ai'
-import { CodexAuthService } from '../src/auth-service.ts'
+import { classifyCodexLoginFailure, CodexAuthService } from '../src/auth-service.ts'
 import type { CodexAuthModels } from '../src/auth-service.ts'
 
 const OAUTH: Credential = {
@@ -75,5 +75,31 @@ describe('CodexAuthService', () => {
     auth.login('device')
     await expect(auth.logout()).resolves.toEqual({ phase: 'disconnected' })
     expect(credentials.current).toBeUndefined()
+  })
+
+  it.each([
+    ['OpenAI Codex device code login is not enabled for this server', 'device-code-disabled'],
+    ['Failed to extract accountId from token', 'account-access'],
+    ['OpenAI Codex token exchange failed (403): forbidden', 'account-access'],
+    ['Missing authorization code', 'browser-callback'],
+    ['OpenAI Codex token exchange failed (400): invalid_grant', 'token-exchange'],
+    ['TypeError: fetch failed', 'network'],
+    ['unexpected provider failure containing secret-response-text', 'unknown'],
+  ] as const)('classifies %s without returning the provider message', (message, reason) => {
+    expect(classifyCodexLoginFailure(new Error(message))).toBe(reason)
+  })
+
+  it('publishes only a secret-free failure reason and login method', async () => {
+    const credentials = store()
+    const auth = new CodexAuthService(models(credentials, async () => {
+      throw new Error('Failed to extract accountId from token: secret-response-text')
+    }), credentials)
+
+    expect(auth.login('browser')).toEqual({ phase: 'starting', method: 'browser' })
+    await vi.waitFor(async () => {
+      const status = await auth.status()
+      expect(status).toEqual({ phase: 'failed', method: 'browser', reason: 'account-access' })
+      expect(JSON.stringify(status)).not.toContain('secret-response-text')
+    })
   })
 })
