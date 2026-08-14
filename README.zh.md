@@ -26,6 +26,23 @@ dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin
 dsh web
 ```
 
+## 设置 OpenAI Codex
+
+> 本插件使用 ChatGPT OAuth 登录，不需要 `OPENAI_API_KEY`，也不是 OpenAI Platform API Key 集成。
+
+设置页大致如下：
+
+<p align="center">
+  <img src="./docs/images/openai-codex-settings.svg" alt="DeepSeek Harness 中的 OpenAI Codex 设置页" width="900">
+</p>
+
+1. 执行 `dsh web` 启动 Web UI。
+2. 打开**设置 → OpenAI Codex**，点击**连接 Codex**。
+3. 选择**浏览器登录**，使用 ChatGPT 账号完成授权；如果 Host 是无头或远程环境，则选择**设备代码登录**。
+4. 状态变为**已连接**后，在正常的模型选择器中选择 `openai-codex` 下的模型。安装插件不会自动修改默认模型。
+
+浏览器登录要求浏览器和 dsh Host 在同一台机器上运行。设备代码登录可能需要先在 ChatGPT 安全设置或工作区权限中启用。账号或工作区必须拥有 Codex 访问权限；模型可用性和配额由 OpenAI 控制。
+
 ## 升级
 
 插件按 dsh profile 独立安装。将 `web` profile 中的插件升级到最新已发布版本：

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">OpenAI Codex settings in DeepSeek Harness</title>
+  <desc id="desc">Dark-themed DeepSeek Harness settings page with OpenAI Codex selected, showing the Connect Codex button and connection status.</desc>
+  <defs>
+    <filter id="panelShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <linearGradient id="button" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b5b61"/>
+      <stop offset="1" stop-color="#424247"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="760" rx="16" fill="#29292c"/>
+  <rect x="1" y="1" width="1198" height="758" rx="15" fill="none" stroke="#444449" stroke-width="2"/>
+
+  <!-- Top bar -->
+  <rect x="0" y="0" width="1200" height="54" rx="16" fill="#2d2d30"/>
+  <rect x="0" y="38" width="1200" height="16" fill="#2d2d30"/>
+  <text x="26" y="35" fill="#f1f1f3" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="22" font-weight="600">设置</text>
+  <rect x="1004" y="10" width="148" height="34" rx="18" fill="none" stroke="#5a5a60" stroke-width="1.5"/>
+  <text x="1078" y="32" text-anchor="middle" fill="#dbdbdf" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="15">打开配置文件</text>
+  <path d="M1170 18l18 18M1188 18l-18 18" stroke="#eeeeef" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="54" width="300" height="706" fill="#29292c"/>
+  <g fill="none" stroke="#e5e5e8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="43" cy="111" r="8"/>
+    <path d="M43 98v5M43 119v5M30 111h5M51 111h5M34 102l4 4M48 116l4 4M52 102l-4 4M38 116l-4 4"/>
+    <path d="M38 163h10M38 168h10M40 173h6M36 160h14v15H36z"/>
+    <path d="M38 226h11M38 231h17M38 236h12M34 222h20v18H34z"/>
+    <path d="M35 291h20M35 286h20M40 281h10"/>
+    <circle cx="39" cy="352" r="4"/><circle cx="52" cy="347" r="4"/><circle cx="52" cy="361" r="4"/>
+    <path d="M42 350l6-2M42 354l6 5"/>
+  </g>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18">
+    <text x="70" y="117" fill="#ededf0">通用设置</text>
+    <text x="70" y="175" fill="#ededf0">模型</text>
+    <text x="70" y="237" fill="#ededf0">OpenAI Codex</text>
+    <text x="70" y="297" fill="#ededf0">插件</text>
+    <text x="70" y="359" fill="#ededf0">Agent 预设</text>
+  </g>
+
+  <!-- Selected navigation item -->
+  <rect x="12" y="197" width="276" height="56" rx="14" fill="#49494f" stroke="#151518" stroke-width="4"/>
+  <g fill="none" stroke="#f1f1f3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="43" cy="225" r="8"/>
+    <path d="M43 212v5M43 233v5M30 225h5M51 225h5M34 216l4 4M48 230l4 4M52 216l-4 4M38 230l-4 4"/>
+  </g>
+  <text x="70" y="237" fill="#ededf0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18">OpenAI Codex</text>
+  <circle cx="270" cy="225" r="13" fill="#6278ed"/>
+  <text x="270" y="231" text-anchor="middle" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16" font-weight="700">1</text>
+
+  <!-- Main content -->
+  <text x="368" y="116" fill="#f4f4f6" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="31" font-weight="700">OpenAI Codex</text>
+  <text x="368" y="166" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="18">连接 ChatGPT 账号，把 Codex 直接作为 dsh 的模型 Provider。</text>
+
+  <g filter="url(#panelShadow)">
+    <rect x="368" y="204" width="760" height="224" rx="18" fill="#353538" stroke="#55555b" stroke-width="1.5"/>
+  </g>
+  <text x="394" y="246" fill="#f2f2f4" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="21" font-weight="600">OpenAI Codex</text>
+  <circle cx="402" cy="284" r="5" fill="#36d878"/>
+  <text x="420" y="291" fill="#d0d0d4" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="17">已连接</text>
+  <rect x="1000" y="232" width="112" height="38" rx="19" fill="url(#button)" stroke="#69696f" stroke-width="1"/>
+  <text x="1056" y="256" text-anchor="middle" fill="#f1f1f3" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="15">断开连接</text>
+  <line x1="394" y1="326" x2="1102" y2="326" stroke="#57575d" stroke-width="1"/>
+  <text x="394" y="373" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="17">模型上下文上限来自 Codex 模型目录，并直接参与 Harness 自动压缩预算。</text>
+
+  <!-- Callout -->
+  <path d="M274 225 C315 225 327 225 354 225" fill="none" stroke="#7186f1" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="354" cy="225" r="7" fill="#7186f1"/>
+  <rect x="390" y="492" width="680" height="88" rx="16" fill="#353b5c" stroke="#7186f1" stroke-width="1.5"/>
+  <circle cx="426" cy="536" r="19" fill="#7186f1"/>
+  <text x="426" y="543" text-anchor="middle" fill="#ffffff" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="17" font-weight="700">2</text>
+  <text x="462" y="530" fill="#f2f2f6" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="19" font-weight="600">登录入口就在这里</text>
+  <text x="462" y="557" fill="#c9cce0" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">首次使用时点击“连接 Codex”，再选择浏览器登录或设备代码登录。</text>
+
+  <!-- Model picker hint -->
+  <rect x="368" y="640" width="760" height="58" rx="12" fill="#303033" stroke="#48484d" stroke-width="1"/>
+  <text x="394" y="676" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">登录成功后，在正常模型选择器中选择</text>
+  <text x="697" y="676" fill="#9eafff" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16" font-weight="700">openai-codex</text>
+  <text x="815" y="676" fill="#a8a8ae" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="16">下的模型。</text>
+</svg>

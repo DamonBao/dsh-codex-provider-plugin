@@ -26,6 +26,23 @@ dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin
 dsh web
 ```
 
+## Set up OpenAI Codex
+
+> This plugin uses ChatGPT OAuth, not an `OPENAI_API_KEY` or OpenAI Platform API key.
+
+The settings page looks like this:
+
+<p align="center">
+  <img src="./docs/images/openai-codex-settings.svg" alt="OpenAI Codex settings page in DeepSeek Harness" width="900">
+</p>
+
+1. Start the Web UI with `dsh web`.
+2. Open **Settings → OpenAI Codex** and click **Connect Codex**.
+3. Choose **Browser sign-in** and authorize with your ChatGPT account, or choose **Device code sign-in** for a headless/remote Host.
+4. After the status becomes **Connected**, select a model under `openai-codex` in the normal model picker. Installing the plugin does not change the default model.
+
+Browser sign-in requires the browser and dsh Host to run on the same machine. Device-code sign-in may need to be enabled in ChatGPT security settings or workspace permissions. Your account or workspace must have Codex access; model availability and quotas are controlled by OpenAI.
+
 ## Upgrade
 
 Plugins are installed independently for each dsh profile. Upgrade this plugin in the `web` profile to the newest published version:
