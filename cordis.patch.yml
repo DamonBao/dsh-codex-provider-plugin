@@ -1,0 +1,4 @@
+# One installable row owns both the Host provider and its optional Web client.
+- insert:
+    - id: llm-openai-codex
+      name: '@jcy2387/dsh-codex-provider-plugin'

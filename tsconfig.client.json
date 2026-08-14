@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "src/client/**/*",
+    "src/rpc-contract.ts",
+    "src/types.ts"
+  ],
+  "exclude": ["lib", "node_modules"]
+}
