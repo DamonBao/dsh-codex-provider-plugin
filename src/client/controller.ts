@@ -68,6 +68,7 @@ export class CodexAuthCardController {
         state.auth = authResult.value
         state.action = null
         state.actionFailed = false
+        if (authResult.value.phase === 'connected' && state.usage === null) state.usageStatus = 'loading'
       } else if (!silent) {
         state.status = 'error'
         state.actionFailed = false
