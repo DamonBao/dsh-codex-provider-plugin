@@ -91,6 +91,7 @@ function isFailureReason(value: unknown): value is CodexAuthFailureReason {
     || value === 'device-code-disabled'
     || value === 'network'
     || value === 'token-exchange'
+    || value === 'unsupported-region'
     || value === 'unknown'
 }
 

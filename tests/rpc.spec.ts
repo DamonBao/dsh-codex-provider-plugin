@@ -37,6 +37,8 @@ describe('Codex authentication RPC', () => {
       .toEqual({ phase: 'awaiting-device', verificationUri: 'https://x', userCode: 'ABCD' })
     expect(parseCodexAuthState({ phase: 'failed', method: 'browser', reason: 'browser-callback' }))
       .toEqual({ phase: 'failed', method: 'browser', reason: 'browser-callback' })
+    expect(parseCodexAuthState({ phase: 'failed', method: 'browser', reason: 'unsupported-region' }))
+      .toEqual({ phase: 'failed', method: 'browser', reason: 'unsupported-region' })
     expect(parseCodexAuthState({ phase: 'failed', method: 'browser', reason: 'secret-response-text' }))
       .toBeUndefined()
   })

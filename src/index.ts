@@ -19,6 +19,7 @@ import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import type { ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { CodexAuthService, codexAuthModels } from './auth-service.ts'
+import { startCodexIpv6CallbackBridge } from './callback-bridge.ts'
 import { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
 import { codexDispatchProvider } from './provider.ts'
 import { CODEX_AUTH_RPC_CHANNEL, handleCodexAuthRpc } from './rpc.ts'
@@ -46,6 +47,7 @@ export interface Config {
   websocketConnectTimeoutMs?: number
   streamIdleTimeoutMs?: number
   retryPolicy?: RetryPolicyConfig
+  ipv6CallbackBridge?: boolean
 }
 
 const CodexTransportSchema = z.union(['sse', 'websocket', 'websocket-cached', 'auto'])
@@ -62,6 +64,7 @@ export const Config: z<Config> = z.object({
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: StreamIdleTimeoutSchema,
   retryPolicy: RetryPolicySchema,
+  ipv6CallbackBridge: z.boolean().default(true),
 })
 
 /** Fully resolved provider profile settings. */
@@ -72,6 +75,7 @@ export interface ResolvedConfig {
   websocketConnectTimeoutMs?: number
   streamIdleTimeoutMs: number
   retryPolicy: ResolvedRetryPolicy
+  ipv6CallbackBridge: boolean
 }
 
 /** Resolve defaults and timer bounds before registering the route. */
@@ -93,6 +97,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
       : { websocketConnectTimeoutMs: config.websocketConnectTimeoutMs },
     streamIdleTimeoutMs,
     retryPolicy: resolveRetryPolicy(config.retryPolicy, '@jcy2387/dsh-codex-provider-plugin: retryPolicy'),
+    ipv6CallbackBridge: config.ipv6CallbackBridge ?? true,
   }
 }
 
@@ -140,7 +145,20 @@ export function apply(ctx: Context, config: Config): void {
   })
   ctx.llm.registerAdapter([CODEX_PROVIDER], adapter)
 
-  const auth = new CodexAuthService(codexAuthModels(authModels), credentials)
+  const auth = new CodexAuthService(
+    codexAuthModels(authModels),
+    credentials,
+    () => startCodexIpv6CallbackBridge(
+      undefined,
+      process.env.PI_OAUTH_CALLBACK_HOST,
+      resolved.ipv6CallbackBridge,
+    ),
+    (error, method) => {
+      ctx.logger('dsh-codex-provider').warn(
+        new Error(`OpenAI Codex ${method} login failed`, { cause: error }),
+      )
+    },
+  )
   ctx.effect(() => () => auth.dispose(), '@jcy2387/dsh-codex-provider-plugin: drain OAuth')
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.effect(

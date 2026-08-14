@@ -67,6 +67,7 @@ export function authFailureLabel(reason: CodexAuthFailureReason): CodexSettingsK
     case 'device-code-disabled': return 'failureDeviceCodeDisabled'
     case 'network': return 'failureNetwork'
     case 'token-exchange': return 'failureTokenExchange'
+    case 'unsupported-region': return 'failureUnsupportedRegion'
     case 'unknown': return 'failureUnknown'
     default: return assertNever(reason)
   }

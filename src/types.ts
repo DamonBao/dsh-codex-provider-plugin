@@ -10,6 +10,7 @@ export type CodexAuthFailureReason =
   | 'device-code-disabled'
   | 'network'
   | 'token-exchange'
+  | 'unsupported-region'
   | 'unknown'
 
 /** Non-secret authentication state returned to trusted UI clients. */
