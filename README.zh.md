@@ -57,7 +57,7 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 也可以安装指定版本：
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.7 --save-exact
+dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
 ```
 
 确认安装版本后重启 `dsh web`，并在浏览器中强制刷新，避免继续使用旧的客户端 bundle：

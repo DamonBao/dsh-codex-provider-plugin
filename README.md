@@ -57,7 +57,7 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 To install an exact version instead:
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.7 --save-exact
+dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
 ```
 
 Verify the installed version, restart `dsh web`, and force-refresh the browser so it does not reuse the previous client bundle:
