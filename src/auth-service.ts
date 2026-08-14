@@ -7,6 +7,7 @@ import type {
   CredentialStore,
   Models,
 } from '@earendil-works/pi-ai'
+import type { CodexCallbackBridge, CodexCallbackBridgeFactory } from './callback-bridge.ts'
 import { CODEX_PROVIDER } from './credential-store.ts'
 import type { CodexAuthFailureReason, CodexAuthState, CodexLoginMethod } from './types.ts'
 
@@ -48,6 +49,7 @@ export function classifyCodexLoginFailure(error: unknown): CodexAuthFailureReaso
   const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase()
   if (message.includes('device code login is not enabled')
     || message.includes('deviceauth_not_enabled')) return 'device-code-disabled'
+  if (message.includes('unsupported_country_region_territory')) return 'unsupported-region'
   if (containsAny(message, ACCOUNT_ACCESS_MARKERS) || /\b(?:401|403)\b/.test(message)) {
     return 'account-access'
   }
@@ -64,6 +66,9 @@ export interface CodexAuthModels {
   login(providerId: string, type: 'oauth', interaction: AuthInteraction): Promise<Credential>
   logout(providerId: string): Promise<void>
 }
+
+/** Host-only sink for full provider errors that must not cross the browser RPC. */
+export type CodexLoginFailureReporter = (error: unknown, method: CodexLoginMethod) => void
 
 function abortError(signal: AbortSignal): Error {
   return signal.reason instanceof Error
@@ -93,6 +98,8 @@ export class CodexAuthService {
   constructor(
     private readonly models: CodexAuthModels,
     private readonly credentials: CredentialStore,
+    private readonly startBrowserCallbackBridge?: CodexCallbackBridgeFactory,
+    private readonly reportLoginFailure?: CodexLoginFailureReporter,
   ) {}
 
   private publish(state: CodexAuthState): CodexAuthState {
@@ -148,21 +155,34 @@ export class CodexAuthService {
     }
     this.active = active
     const starting = this.publish({ phase: 'starting', method })
-    active.task = this.models.login(CODEX_PROVIDER, 'oauth', this.interaction(active)).then((credential) => {
+    active.task = this.completeLogin(active)
+    return starting
+  }
+
+  private async completeLogin(active: ActiveLogin): Promise<void> {
+    let bridge: CodexCallbackBridge | undefined
+    try {
+      if (active.method === 'browser') bridge = await this.startBrowserCallbackBridge?.()
+      const credential = await this.models.login(CODEX_PROVIDER, 'oauth', this.interaction(active))
       if (credential.type !== 'oauth') throw new Error('Codex OAuth returned a non-OAuth credential')
       this.publish({ phase: 'connected', expiresAt: credential.expires })
-    }).catch((error: unknown) => {
+    } catch (error: unknown) {
       if (!active.controller.signal.aborted) {
+        this.reportLoginFailure?.(error, active.method)
         this.publish({
           phase: 'failed',
           method: active.method,
           reason: classifyCodexLoginFailure(error),
         })
       }
-    }).finally(() => {
+    } finally {
+      try {
+        await bridge?.close()
+      } catch {
+        // Swallow only bridge teardown failures; they cannot change the completed OAuth result or stored credential.
+      }
       if (this.active === active) this.active = undefined
-    })
-    return starting
+    }
   }
 
   /** Cancel the active login without deleting an earlier usable credential. */

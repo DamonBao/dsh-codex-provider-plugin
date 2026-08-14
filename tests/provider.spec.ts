@@ -44,7 +44,11 @@ describe('Codex provider plugin', () => {
   })
 
   it('validates timer bounds and incomplete model catalogs', () => {
-    expect(CodexProvider.resolveConfig({}).credentialRef).toBe('OPENAI_CODEX_OAUTH')
+    expect(CodexProvider.resolveConfig({})).toMatchObject({
+      credentialRef: 'OPENAI_CODEX_OAUTH',
+      ipv6CallbackBridge: true,
+    })
+    expect(CodexProvider.resolveConfig({ ipv6CallbackBridge: false }).ipv6CallbackBridge).toBe(false)
     expect(() => CodexProvider.resolveConfig({ streamIdleTimeoutMs: 0 })).toThrow(/positive/)
     expect(() => CodexProvider.resolveConfig({ credentialRef: 'not-valid!' })).toThrow(/credential ref/)
     expect(() => CodexProvider.assertCodexCatalog({ getModels: () => [] } as never)).toThrow(/empty/)

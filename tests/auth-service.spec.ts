@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createModels } from '@earendil-works/pi-ai'
 import type { AuthInteraction, Credential, CredentialStore } from '@earendil-works/pi-ai'
-import { classifyCodexLoginFailure, CodexAuthService } from '../src/auth-service.ts'
+import { openaiCodexProvider } from '@earendil-works/pi-ai/providers/openai-codex'
+import { classifyCodexLoginFailure, CodexAuthService, codexAuthModels } from '../src/auth-service.ts'
 import type { CodexAuthModels } from '../src/auth-service.ts'
 
 const OAUTH: Credential = {
@@ -44,13 +46,14 @@ function models(
 describe('CodexAuthService', () => {
   it('publishes browser authorization and completes in background', async () => {
     const credentials = store()
+    const closeBridge = vi.fn(async () => {})
     let finish!: () => void
     const completion = new Promise<void>(resolve => { finish = resolve })
     const auth = new CodexAuthService(models(credentials, async (interaction) => {
       interaction.notify({ type: 'auth_url', url: 'https://auth.example/start' })
       await completion
       return OAUTH
-    }), credentials)
+    }), credentials, async () => ({ close: closeBridge }))
 
     expect(auth.login('browser')).toEqual({ phase: 'starting', method: 'browser' })
     await vi.waitFor(async () => {
@@ -61,24 +64,28 @@ describe('CodexAuthService', () => {
     finish()
     await vi.waitFor(async () => {
       await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+      expect(closeBridge).toHaveBeenCalledOnce()
     })
   })
 
   it('cancels active work and removes stored credentials on logout', async () => {
     const credentials = store()
     credentials.current = OAUTH
+    const startBridge = vi.fn(async () => ({ close: async () => {} }))
     const auth = new CodexAuthService(models(credentials, async interaction => {
       await interaction.prompt({ type: 'manual_code', message: 'wait' })
       return OAUTH
-    }), credentials)
+    }), credentials, startBridge)
 
     auth.login('device')
     await expect(auth.logout()).resolves.toEqual({ phase: 'disconnected' })
     expect(credentials.current).toBeUndefined()
+    expect(startBridge).not.toHaveBeenCalled()
   })
 
   it.each([
     ['OpenAI Codex device code login is not enabled for this server', 'device-code-disabled'],
+    ['OpenAI Codex token exchange failed (403): unsupported_country_region_territory', 'unsupported-region'],
     ['Failed to extract accountId from token', 'account-access'],
     ['OpenAI Codex token exchange failed (403): forbidden', 'account-access'],
     ['Missing authorization code', 'browser-callback'],
@@ -91,15 +98,62 @@ describe('CodexAuthService', () => {
 
   it('publishes only a secret-free failure reason and login method', async () => {
     const credentials = store()
+    const reportFailure = vi.fn()
     const auth = new CodexAuthService(models(credentials, async () => {
       throw new Error('Failed to extract accountId from token: secret-response-text')
-    }), credentials)
+    }), credentials, undefined, reportFailure)
 
     expect(auth.login('browser')).toEqual({ phase: 'starting', method: 'browser' })
     await vi.waitFor(async () => {
       const status = await auth.status()
       expect(status).toEqual({ phase: 'failed', method: 'browser', reason: 'account-access' })
       expect(JSON.stringify(status)).not.toContain('secret-response-text')
+      expect(reportFailure).toHaveBeenCalledWith(expect.any(Error), 'browser')
     })
+  })
+
+  it('fails immediately when browser callback preparation rejects', async () => {
+    const credentials = store()
+    const login = vi.fn(async () => OAUTH)
+    const auth = new CodexAuthService(
+      models(credentials, login),
+      credentials,
+      async () => { throw new Error('Codex browser callback cannot listen on 127.0.0.1:1455') },
+    )
+
+    auth.login('browser')
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toEqual({
+        phase: 'failed', method: 'browser', reason: 'browser-callback',
+      })
+    })
+    expect(login).not.toHaveBeenCalled()
+  })
+
+  it('drives the real pi-ai device-code branch without opening a browser callback', async () => {
+    const credentials = store()
+    const fetchMock = vi.fn(async () => new Response('', { status: 404 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const piModels = createModels({ credentials })
+    piModels.setProvider(openaiCodexProvider())
+    const startBridge = vi.fn(async () => ({ close: async () => {} }))
+    const auth = new CodexAuthService(codexAuthModels(piModels), credentials, startBridge)
+
+    try {
+      auth.login('device')
+      await vi.waitFor(async () => {
+        await expect(auth.status()).resolves.toEqual({
+          phase: 'failed', method: 'device', reason: 'device-code-disabled',
+        })
+      })
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://auth.openai.com/api/accounts/deviceauth/usercode',
+        expect.objectContaining({ method: 'POST' }),
+      )
+      expect(startBridge).not.toHaveBeenCalled()
+    } finally {
+      await auth.cancel()
+      vi.unstubAllGlobals()
+    }
   })
 })
