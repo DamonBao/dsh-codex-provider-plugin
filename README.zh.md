@@ -35,7 +35,7 @@ dsh web
 设置页大致如下：
 
 <p align="center">
-  <img src="./docs/images/openai-codex-settings.svg" alt="DeepSeek Harness 中的 OpenAI Codex 设置页" width="900">
+  <img src="https://raw.githubusercontent.com/DamonBao/dsh-codex-provider-plugin/main/docs/images/openai-codex-settings.svg" alt="DeepSeek Harness 中的 OpenAI Codex 设置页" width="900">
 </p>
 
 1. 执行 `dsh web` 启动 Web UI。
@@ -57,7 +57,8 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 也可以安装指定版本：
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
+VERSION="$(npm view @jcy2387/dsh-codex-provider-plugin version)"
+dsh plugin --profile web add "@jcy2387/dsh-codex-provider-plugin@$VERSION" --save-exact
 ```
 
 确认安装版本后重启 `dsh web`，并在浏览器中强制刷新，避免继续使用旧的客户端 bundle：
@@ -97,6 +98,7 @@ pnpm dsh web
     transport: auto
     streamIdleTimeoutMs: 300000
     ipv6CallbackBridge: true
+    proactiveRefresh: true
 ```
 
 - `credentialRef`：Harness credential provider 中保存序列化 OAuth 状态的引用。
@@ -106,6 +108,14 @@ pnpm dsh web
 - `streamIdleTimeoutMs`：等待下一段流数据的最大空闲时间。
 - `retryPolicy`：Harness LLM 的标准重试配置。
 - `ipv6CallbackBridge`：浏览器登录期间，临时把 `[::1]:1455` 桥接到 pi-ai 的 `127.0.0.1:1455` 监听器。默认启用；如果部署已经显式管理 `PI_OAUTH_CALLBACK_HOST`，可以关闭。仅关闭桥接时，IPv4 端口可用性检查仍然生效。
+- `proactiveRefresh`：在 access token 过期前几分钟于后台刷新，过期后的第一个请求不必再等一次令牌往返。默认启用；关闭后退化为纯粹的惰性刷新（过期后的首次请求时刷新）。
+
+## 令牌刷新
+
+pi-ai 会在双重检查锁内轮换过期的 access token，插件把每次轮换后的凭据写回 Harness 凭据存储。在此之上还有两层行为：
+
+- **主动刷新**：连接状态下，Host 会在 access token 过期前 5 分钟于后台刷新。瞬时的网络失败会在 1 分钟后、然后每 5 分钟重试一次，且不改变登录状态。
+- **失败可见**：如果 OpenAI 拒绝了 refresh token（例如 `invalid_grant`），设置页状态会翻转为**登录已失效**并给出重新连接入口，而不是让请求在后台静默失败。之后任何一次刷新成功（定时器或请求路径）都会自动恢复为**已连接**。刷新错误只保留在 Host 日志中，跨 RPC 的只有不含密钥的状态。
 
 ## 认证排障
 
@@ -140,6 +150,6 @@ pnpm run publint
 构建产物：
 
 - `lib/index.js`：Host 插件。
-- `lib/client.js`：loader-compatible browser 插件，CSS Modules 已内联。
+- `lib/client.cjs`：loader-compatible browser 插件，CSS Modules 已内联。
 - `lib/types/**`：Host 与 browser declaration files。
 - `cordis.patch.yml`：由 `dsh.bundle` manifest 激活的 profile layer。

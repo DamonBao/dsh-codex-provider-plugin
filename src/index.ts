@@ -23,10 +23,13 @@ import { startCodexIpv6CallbackBridge } from './callback-bridge.ts'
 import { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
 import { codexDispatchProvider } from './provider.ts'
 import { CODEX_AUTH_RPC_CHANNEL, handleCodexAuthRpc } from './rpc.ts'
+import { CodexTokenRefresher } from './token-resolver.ts'
 import { CodexUsageService } from './usage-service.ts'
 
 export { CodexAuthService } from './auth-service.ts'
 export type { CodexAuthModels } from './auth-service.ts'
+export { CodexTokenRefresher } from './token-resolver.ts'
+export type { CodexRefreshSink, CodexTokenRefresherOptions } from './token-resolver.ts'
 export { CodexUsageService, parseCodexUsagePayload } from './usage-service.ts'
 export type { CodexUsageModels } from './usage-service.ts'
 export type * from './types.ts'
@@ -51,6 +54,7 @@ export interface Config {
   streamIdleTimeoutMs?: number
   retryPolicy?: RetryPolicyConfig
   ipv6CallbackBridge?: boolean
+  proactiveRefresh?: boolean
 }
 
 const CodexTransportSchema = z.union(['sse', 'websocket', 'websocket-cached', 'auto'])
@@ -68,6 +72,7 @@ export const Config: z<Config> = z.object({
   streamIdleTimeoutMs: StreamIdleTimeoutSchema,
   retryPolicy: RetryPolicySchema,
   ipv6CallbackBridge: z.boolean().default(true),
+  proactiveRefresh: z.boolean().default(true),
 })
 
 /** Fully resolved provider profile settings. */
@@ -79,6 +84,7 @@ export interface ResolvedConfig {
   streamIdleTimeoutMs: number
   retryPolicy: ResolvedRetryPolicy
   ipv6CallbackBridge: boolean
+  proactiveRefresh: boolean
 }
 
 /** Resolve defaults and timer bounds before registering the route. */
@@ -101,6 +107,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     streamIdleTimeoutMs,
     retryPolicy: resolveRetryPolicy(config.retryPolicy, '@jcy2387/dsh-codex-provider-plugin: retryPolicy'),
     ipv6CallbackBridge: config.ipv6CallbackBridge ?? true,
+    proactiveRefresh: config.proactiveRefresh ?? true,
   }
 }
 
@@ -124,9 +131,39 @@ export function apply(ctx: Context, config: Config): void {
   const credentials = new CodexCredentialStore(ctx.credentials, resolved.credentialRef)
   const piProvider = openaiCodexProvider()
   assertCodexCatalog(piProvider)
+  const piOauth = piProvider.auth.oauth
+  if (piOauth === undefined) {
+    throw new Error('@jcy2387/dsh-codex-provider-plugin: Codex provider exposes no OAuth handler')
+  }
 
   const authModels = createModels({ credentials })
   authModels.setProvider(piProvider)
+  const auth = new CodexAuthService(
+    codexAuthModels(authModels),
+    credentials,
+    () => startCodexIpv6CallbackBridge(
+      undefined,
+      process.env.PI_OAUTH_CALLBACK_HOST,
+      resolved.ipv6CallbackBridge,
+    ),
+    (error, method) => {
+      ctx.logger('dsh-codex-provider').warn(
+        new Error(`OpenAI Codex ${method} login failed`, { cause: error }),
+      )
+    },
+  )
+  const refresher = new CodexTokenRefresher(authModels, credentials, auth, {
+    // The same locked rotation pi-ai performs lazily, driven ahead of expiry.
+    refresh: credential => piOauth.refresh(credential),
+    proactive: resolved.proactiveRefresh,
+    onRefreshFailure: (error) => {
+      ctx.logger('dsh-codex-provider').warn(
+        new Error('OpenAI Codex token refresh failed', { cause: error }),
+      )
+    },
+  })
+  auth.setStateListener(state => refresher.observe(state))
+
   const profile: ResolvedPiAiProviderProfile = {
     provider: CODEX_PROVIDER,
     displayName: piProvider.name,
@@ -143,26 +180,12 @@ export function apply(ctx: Context, config: Config): void {
   const profiles = new Map([[CODEX_PROVIDER, profile]])
   const adapter = new PiAiAdapter({
     profiles: () => profiles,
-    resolveApiKey: async () => (await authModels.getAuth(CODEX_PROVIDER))?.auth.apiKey,
+    resolveApiKey: async () => (await refresher.getAuth(CODEX_PROVIDER))?.auth.apiKey,
     resolveAttachments: (): AttachmentStore | undefined => ctx.get('attachments'),
   })
   ctx.llm.registerAdapter([CODEX_PROVIDER], adapter)
 
-  const auth = new CodexAuthService(
-    codexAuthModels(authModels),
-    credentials,
-    () => startCodexIpv6CallbackBridge(
-      undefined,
-      process.env.PI_OAUTH_CALLBACK_HOST,
-      resolved.ipv6CallbackBridge,
-    ),
-    (error, method) => {
-      ctx.logger('dsh-codex-provider').warn(
-        new Error(`OpenAI Codex ${method} login failed`, { cause: error }),
-      )
-    },
-  )
-  const usage = new CodexUsageService(authModels, credentials)
+  const usage = new CodexUsageService(refresher, credentials)
   const rpcService = {
     status: () => auth.status(),
     usage: async () => {
@@ -178,6 +201,12 @@ export function apply(ctx: Context, config: Config): void {
     logout: () => auth.logout(),
   }
   ctx.effect(() => () => auth.dispose(), '@jcy2387/dsh-codex-provider-plugin: drain OAuth')
+  ctx.effect(
+    () => () => { refresher.dispose() },
+    '@jcy2387/dsh-codex-provider-plugin: drain token refresher',
+  )
+  // Arm proactive refresh from a credential stored before this Host started.
+  void refresher.start()
   ctx.inject(['connection'], (connectionCtx) => {
     connectionCtx.effect(
       () => connectionCtx.connection.rpc.handle(

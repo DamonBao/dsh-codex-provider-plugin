@@ -35,7 +35,7 @@ dsh web
 The settings page looks like this:
 
 <p align="center">
-  <img src="./docs/images/openai-codex-settings.svg" alt="OpenAI Codex settings page in DeepSeek Harness" width="900">
+  <img src="https://raw.githubusercontent.com/DamonBao/dsh-codex-provider-plugin/main/docs/images/openai-codex-settings.svg" alt="OpenAI Codex settings page in DeepSeek Harness" width="900">
 </p>
 
 1. Start the Web UI with `dsh web`.
@@ -57,7 +57,8 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 To install an exact version instead:
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
+VERSION="$(npm view @jcy2387/dsh-codex-provider-plugin version)"
+dsh plugin --profile web add "@jcy2387/dsh-codex-provider-plugin@$VERSION" --save-exact
 ```
 
 Verify the installed version, restart `dsh web`, and force-refresh the browser so it does not reuse the previous client bundle:
@@ -97,6 +98,7 @@ Every field is optional:
     transport: auto
     streamIdleTimeoutMs: 300000
     ipv6CallbackBridge: true
+    proactiveRefresh: true
 ```
 
 - `credentialRef`: reference used by the Harness credential provider for serialized OAuth state.
@@ -106,6 +108,14 @@ Every field is optional:
 - `streamIdleTimeoutMs`: maximum idle interval while waiting for the next stream chunk.
 - `retryPolicy`: standard Harness LLM retry configuration.
 - `ipv6CallbackBridge`: temporarily bridge `[::1]:1455` to pi-ai's `127.0.0.1:1455` listener during browser sign-in. Enabled by default; disable it when `PI_OAUTH_CALLBACK_HOST` is explicitly managed by the deployment. The IPv4 port-availability check remains active when only the bridge is disabled.
+- `proactiveRefresh`: refresh the access token in the background a few minutes before it expires, so the first request after expiry never pays the token round-trip. Enabled by default; disable it to fall back to purely lazy, request-driven refresh.
+
+## Token refresh
+
+pi-ai rotates expired access tokens under a double-checked credential lock, and the plugin persists every rotated credential back into the Harness credential store. Two behaviors sit on top of that:
+
+- **Proactive refresh**: while connected, the Host refreshes the access token five minutes before expiry. Transient network failures retry after one minute, then every five minutes, without changing the sign-in state.
+- **Failure surfacing**: if OpenAI rejects the refresh token (for example `invalid_grant`), the Settings status flips to **Sign-in expired** with a reconnect action instead of failing requests silently. Any later successful refresh — from the timer or from a request — flips the state back to **Connected** automatically. Refresh errors stay in the Host log; only the secret-free state crosses RPC.
 
 ## Authentication troubleshooting
 
@@ -140,6 +150,6 @@ pnpm run publint
 Build outputs:
 
 - `lib/index.js`: Host plugin.
-- `lib/client.js`: loader-compatible browser plugin with inline CSS Modules.
+- `lib/client.cjs`: loader-compatible browser plugin with inline CSS Modules.
 - `lib/types/**`: Host and browser declarations.
 - `cordis.patch.yml`: profile layer activated by the `dsh.bundle` manifest.

@@ -20,6 +20,7 @@ export type CodexAuthState =
   | { phase: 'awaiting-browser'; authorizationUrl: string }
   | { phase: 'awaiting-device'; verificationUri: string; userCode: string }
   | { phase: 'connected'; expiresAt: number }
+  | { phase: 'reauth-required' }
   | { phase: 'failed'; method: CodexLoginMethod; reason: CodexAuthFailureReason }
 
 /** One OpenAI-enforced Codex rate-limit window. Epoch timestamps use milliseconds. */

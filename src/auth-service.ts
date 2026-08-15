@@ -94,6 +94,17 @@ interface ActiveLogin {
 export class CodexAuthService {
   private active: ActiveLogin | undefined
   private current: CodexAuthState = { phase: 'disconnected' }
+  private stateListener: ((state: CodexAuthState) => void) | undefined
+  /**
+   * Sticks once a refresh fails terminally, independent of the displayed
+   * phase, until a refresh, login, or logout succeeds. Survives status
+   * recomputation, so a still-stored dead credential cannot reappear as
+   * connected after startup, a cancelled reconnect, or a failed one.
+   */
+  private refreshFailed = false
+  /** Invalidates request-path refresh outcomes started before login/logout. */
+  private refreshGeneration = 0
+  private disposed = false
 
   constructor(
     private readonly models: CodexAuthModels,
@@ -102,8 +113,23 @@ export class CodexAuthService {
     private readonly reportLoginFailure?: CodexLoginFailureReporter,
   ) {}
 
+  /** Monotonic credential generation captured by refresh operations. */
+  getRefreshGeneration(): number {
+    return this.refreshGeneration
+  }
+
+  /** Register a Host-only observer notified after every published state change. */
+  setStateListener(listener: ((state: CodexAuthState) => void) | undefined): void {
+    this.stateListener = listener
+  }
+
   private publish(state: CodexAuthState): CodexAuthState {
     this.current = state
+    try {
+      this.stateListener?.(state)
+    } catch {
+      // A broken Host-side observer must never corrupt the login state machine.
+    }
     return state
   }
 
@@ -140,14 +166,49 @@ export class CodexAuthService {
   async status(): Promise<CodexAuthState> {
     if (this.active !== undefined) return this.current
     const stored = await this.credentials.read(CODEX_PROVIDER)
-    if (stored?.type === 'oauth') return this.publish({ phase: 'connected', expiresAt: stored.expires })
+    if (stored?.type === 'oauth') {
+      // A recent reconnect failure carries a far more useful diagnostic than
+      // the generic reauth state (for example an unsupported region); keep it
+      // visible while the dead-refresh flag sticks.
+      if (this.current.phase === 'failed') return this.current
+      // A stored credential outranks nothing once refresh has terminally failed:
+      // the refresh token is dead even though the credential file still exists.
+      if (this.refreshFailed) return this.publish({ phase: 'reauth-required' })
+      return this.publish({ phase: 'connected', expiresAt: stored.expires })
+    }
     if (this.current.phase === 'failed') return this.current
     return this.publish({ phase: 'disconnected' })
+  }
+
+  /** Record a terminal token-refresh failure; Host-only and secret-free. */
+  noteRefreshFailure(_error: unknown, generation?: number, failedExpires?: number): void {
+    if (this.disposed) return
+    if (generation !== undefined && generation !== this.refreshGeneration) return
+    // A failure for credential A must not condemn credential B after a
+    // successful reconnect, even if the old request settles later.
+    if (failedExpires !== undefined
+      && this.current.phase === 'connected'
+      && this.current.expiresAt !== failedExpires) return
+    this.refreshFailed = true
+    if (this.active !== undefined) return
+    if (this.current.phase === 'connected') this.publish({ phase: 'reauth-required' })
+  }
+
+  /** Record a successful token refresh after a terminal failure. */
+  noteRefreshSuccess(expiresAt: number, generation?: number): void {
+    if (this.disposed) return
+    if (generation !== undefined && generation !== this.refreshGeneration) return
+    this.refreshFailed = false
+    if (this.active !== undefined) return
+    if (this.current.phase === 'reauth-required' || this.current.phase === 'failed') {
+      this.publish({ phase: 'connected', expiresAt })
+    }
   }
 
   /** Start browser-callback or device-code OAuth in background. */
   login(method: CodexLoginMethod): CodexAuthState {
     if (this.active !== undefined) return this.current
+    this.refreshGeneration += 1
     const active: ActiveLogin = {
       controller: new AbortController(),
       method,
@@ -165,6 +226,7 @@ export class CodexAuthService {
       if (active.method === 'browser') bridge = await this.startBrowserCallbackBridge?.()
       const credential = await this.models.login(CODEX_PROVIDER, 'oauth', this.interaction(active))
       if (credential.type !== 'oauth') throw new Error('Codex OAuth returned a non-OAuth credential')
+      this.refreshFailed = false
       this.publish({ phase: 'connected', expiresAt: credential.expires })
     } catch (error: unknown) {
       if (!active.controller.signal.aborted) {
@@ -189,15 +251,19 @@ export class CodexAuthService {
   async cancel(): Promise<CodexAuthState> {
     await this.stopActive('Codex login cancelled')
     const stored = await this.credentials.read(CODEX_PROVIDER)
-    return this.publish(stored?.type === 'oauth'
-      ? { phase: 'connected', expiresAt: stored.expires }
-      : { phase: 'disconnected' })
+    if (stored?.type !== 'oauth') return this.publish({ phase: 'disconnected' })
+    // Preserve a fresh reconnect diagnostic instead of hiding it behind reauth.
+    if (this.current.phase === 'failed') return this.current
+    if (this.refreshFailed) return this.publish({ phase: 'reauth-required' })
+    return this.publish({ phase: 'connected', expiresAt: stored.expires })
   }
 
   /** Cancel active work and remove the stored credential. */
   async logout(): Promise<CodexAuthState> {
+    this.refreshGeneration += 1
     await this.stopActive('Codex logout requested')
     await this.models.logout(CODEX_PROVIDER)
+    this.refreshFailed = false
     return this.publish({ phase: 'disconnected' })
   }
 
@@ -208,8 +274,10 @@ export class CodexAuthService {
     await active.task
   }
 
-  /** Drain background login work during plugin teardown. */
+  /** Drain background login work during plugin teardown and reject stale outcomes. */
   dispose(): Promise<void> {
+    this.disposed = true
+    this.refreshGeneration += 1
     return this.stopActive('Codex provider disposed')
   }
 }

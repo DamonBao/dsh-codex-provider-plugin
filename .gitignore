@@ -3,3 +3,4 @@ lib/
 coverage/
 *.tgz
 .DS_Store
+.pnpm-store/

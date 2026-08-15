@@ -4,7 +4,7 @@
     "rootDir": "src",
     "outDir": "lib/types",
     "declaration": true,
-    "declarationMap": true,
+    "declarationMap": false,
     "emitDeclarationOnly": true,
     "noEmit": false
   },

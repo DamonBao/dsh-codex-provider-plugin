@@ -156,4 +156,167 @@ describe('CodexAuthService', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('keeps reauth-required visible while a dead credential remains stored', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+    auth.noteRefreshFailure(new Error('OAuth refresh failed for openai-codex: invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+    // Cancelling nothing must not resurrect the dead credential as connected.
+    await expect(auth.cancel()).resolves.toEqual({ phase: 'reauth-required' })
+  })
+
+  it('recovers to connected after a successful refresh and forgets logout', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    await auth.status()
+    auth.noteRefreshSuccess(OAUTH.expires + 60_000)
+    // A stray success while connected changes nothing.
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    const rotated = OAUTH.expires + 3_600_000
+    credentials.current = { ...OAUTH, expires: rotated }
+    auth.noteRefreshSuccess(rotated)
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated })
+  })
+
+  it('ignores refresh failure once the credential is gone', async () => {
+    const credentials = store()
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'disconnected' })
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'disconnected' })
+  })
+
+  it('surfaces a refresh failure that fired before the first status read', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    // The proactive timer can fail while the service still shows disconnected.
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+  })
+
+  it('keeps reauth-required when a reconnect attempt is cancelled or fails', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const attempts: Array<{ reject: (error: unknown) => void }> = []
+    const auth = new CodexAuthService(models(credentials, interaction => new Promise<Credential>((_resolve, reject) => {
+      interaction.signal?.addEventListener('abort', () => { reject(new Error('Codex login cancelled')) })
+      attempts.push({ reject })
+    })), credentials)
+
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    // Cancelled reconnect must not resurrect the dead credential.
+    auth.login('device')
+    await expect(auth.cancel()).resolves.toEqual({ phase: 'reauth-required' })
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    // A failed reconnect keeps its specific diagnostic instead of collapsing
+    // into the generic reauth state that hides it.
+    auth.login('device')
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toMatchObject({ phase: 'starting' })
+    })
+    attempts[1]?.reject(
+      new Error('OpenAI Codex token exchange failed (403): unsupported_country_region_territory'),
+    )
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toEqual({
+        phase: 'failed', method: 'device', reason: 'unsupported-region',
+      })
+    })
+    // The diagnostic sticks across polls instead of being overwritten.
+    await expect(auth.status()).resolves.toEqual({
+      phase: 'failed', method: 'device', reason: 'unsupported-region',
+    })
+
+    // A proven rotation recovers straight out of the failed state.
+    const rotated = OAUTH.expires + 3_600_000
+    credentials.current = { ...OAUTH, expires: rotated }
+    auth.noteRefreshSuccess(rotated)
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated })
+  })
+
+  it('ignores a refresh failure started before a successful reconnect', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const rotated = { ...OAUTH, expires: OAUTH.expires + 3_600_000 }
+    const auth = new CodexAuthService(models(credentials, async () => rotated), credentials)
+    const staleGeneration = auth.getRefreshGeneration()
+
+    auth.noteRefreshFailure(new Error('invalid_grant'), staleGeneration, OAUTH.expires)
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    auth.login('device')
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated.expires })
+    })
+
+    auth.noteRefreshFailure(new Error('invalid_grant'), staleGeneration, OAUTH.expires)
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated.expires })
+  })
+
+  it('ignores refresh outcomes that settle after dispose', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+    const staleGeneration = auth.getRefreshGeneration()
+
+    await auth.status()
+    await auth.dispose()
+    auth.noteRefreshFailure(new Error('invalid_grant'), staleGeneration, OAUTH.expires)
+    auth.noteRefreshSuccess(OAUTH.expires + 3_600_000, staleGeneration)
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+  })
+
+  it('clears the dead-refresh flag after a successful login or logout', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    await expect(auth.logout()).resolves.toEqual({ phase: 'disconnected' })
+    await expect(auth.status()).resolves.toEqual({ phase: 'disconnected' })
+
+    // A fresh successful login keeps status connected even after an earlier failure.
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    credentials.current = OAUTH
+    auth.login('device')
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+    })
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+  })
+
+  it('notifies the state listener without letting it corrupt the state machine', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+    const seen: string[] = []
+    auth.setStateListener((state) => {
+      seen.push(state.phase)
+      if (state.phase === 'connected') throw new Error('listener exploded')
+    })
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    expect(seen).toEqual(['connected', 'reauth-required'])
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+  })
 })
