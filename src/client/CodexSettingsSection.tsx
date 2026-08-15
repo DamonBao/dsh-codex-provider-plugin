@@ -9,6 +9,9 @@ import type {
   CodexAuthFailureReason,
   CodexAuthState,
   CodexLoginMethod,
+  CodexNetworkIssue,
+  CodexNetworkRoute,
+  CodexProxyMode,
   CodexUsageWindow,
 } from '../types.ts'
 import type { CodexAuthCardFace, CodexAuthCardState } from './controller.ts'
@@ -80,12 +83,42 @@ export function authFailureLabel(reason: CodexAuthFailureReason): CodexSettingsK
   switch (reason) {
     case 'account-access': return 'failureAccountAccess'
     case 'browser-callback': return 'failureBrowserCallback'
+    case 'browser-callback-port': return 'failureBrowserCallbackPort'
+    case 'browser-callback-timeout': return 'failureBrowserCallbackTimeout'
     case 'device-code-disabled': return 'failureDeviceCodeDisabled'
     case 'network': return 'failureNetwork'
     case 'token-exchange': return 'failureTokenExchange'
     case 'unsupported-region': return 'failureUnsupportedRegion'
     case 'unknown': return 'failureUnknown'
     default: return assertNever(reason)
+  }
+}
+
+export function networkRouteLabel(route: CodexNetworkRoute): CodexSettingsKey {
+  switch (route) {
+    case 'direct-or-tun': return 'networkDirectOrTun'
+    case 'environment-proxy': return 'networkEnvironmentProxy'
+    case 'host-dispatcher': return 'networkHostDispatcher'
+    case 'system-proxy': return 'networkSystemProxy'
+    default: return assertNever(route)
+  }
+}
+
+export function proxyModeLabel(mode: CodexProxyMode): CodexSettingsKey {
+  switch (mode) {
+    case 'auto': return 'proxyModeAuto'
+    case 'environment': return 'proxyModeEnvironment'
+    case 'off': return 'proxyModeOff'
+    default: return assertNever(mode)
+  }
+}
+
+export function networkIssueLabel(issue: CodexNetworkIssue): CodexSettingsKey {
+  switch (issue) {
+    case 'proxy-initialization-failed': return 'networkProxyInitializationFailed'
+    case 'system-proxy-detection-failed': return 'networkSystemProxyDetectionFailed'
+    case 'unsupported-proxy': return 'networkUnsupportedProxy'
+    default: return assertNever(issue)
   }
 }
 
@@ -147,6 +180,20 @@ function LoginBody({ state, t }: { state: CodexAuthState; t: (key: CodexSettings
     )
   }
   return null
+}
+
+function NetworkStatus({ state, t }: { state: CodexAuthCardState; t: Translate }): ReactNode {
+  const route = state.networkStatus === 'error'
+    ? t('networkStatusUnavailable')
+    : state.network === null ? t('networkDetecting') : t(networkRouteLabel(state.network.route))
+  return (
+    <div className={css.networkStatus} role="status">
+      <p><span>{t('networkRouteLabel')}</span> {route}</p>
+      {state.network?.issue === undefined
+        ? null
+        : <p className={css.error}>{t(networkIssueLabel(state.network.issue))}</p>}
+    </div>
+  )
 }
 
 type Translate = (key: CodexSettingsKey) => string
@@ -278,11 +325,14 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
   const state = props.useCodexAuth(snapshot => snapshot)
   const [loginOpen, setLoginOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
+  const configuredProxyMode = state.network?.configuredProxyMode ?? 'auto'
+  const [proxyMode, setProxyMode] = useState<CodexProxyMode>(configuredProxyMode)
   const active = isLoginActive(state.auth)
   const closeState = useRef({ action: state.action, active })
   closeState.current = { action: state.action, active }
 
   useEffect(() => { props.load() }, [props.load])
+  useEffect(() => { setProxyMode(configuredProxyMode) }, [configuredProxyMode])
   useEffect(() => {
     if (!active) return
     const timer = window.setInterval(props.refresh, 600)
@@ -366,6 +416,37 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
               )}
         </div>
         <p className={css.contextInfo}>{t('contextInfo')}</p>
+        <NetworkStatus state={state} t={t} />
+        <div className={css.proxySettings}>
+          <label className={css.proxyModeField}>
+            <span>{t('proxyModeLabel')}</span>
+            <select
+              aria-label={t('proxyModeLabel')}
+              value={proxyMode}
+              disabled={!props.isLoopback || state.networkStatus !== 'ready' || state.action !== null}
+              onChange={(event) => {
+                const mode = event.currentTarget.value
+                if (mode === 'auto' || mode === 'environment' || mode === 'off') setProxyMode(mode)
+              }}
+            >
+              {(['auto', 'environment', 'off'] as const).map(mode => (
+                <option key={mode} value={mode}>{t(proxyModeLabel(mode))}</option>
+              ))}
+            </select>
+          </label>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!props.isLoopback || state.networkStatus !== 'ready'
+              || state.action !== null || proxyMode === configuredProxyMode}
+            onClick={() => { props.setProxyMode(proxyMode) }}
+          >
+            {t(state.action === 'proxy-mode' ? 'proxyModeSaving' : 'proxyModeSave')}
+          </Button>
+        </div>
+        {state.network?.restartRequired
+          ? <p className={css.restartNotice} role="status">{t('proxyModeRestartRequired')}</p>
+          : null}
         {!props.isLoopback ? <p className={css.error} role="status">{t('remoteHint')}</p> : null}
         {state.status === 'error' ? <p className={css.error} role="status">{t('loadFailed')}</p> : null}
         {state.actionFailed ? <p className={css.error} role="status">{t('actionFailed')}</p> : null}

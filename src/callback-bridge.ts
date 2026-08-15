@@ -1,7 +1,8 @@
 /** IPv6 loopback compatibility for pi-ai's IPv4-only Codex OAuth callback. */
 
-import { createServer } from 'node:http'
-import type { Server } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { createServer, request as requestHttp } from 'node:http'
+import type { Server, ServerResponse } from 'node:http'
 
 /** Fixed callback port registered by the OpenAI Codex OAuth client. */
 export const CODEX_CALLBACK_PORT = 1455
@@ -24,6 +25,27 @@ function ipv6Unavailable(error: unknown): boolean {
   return code === 'EAFNOSUPPORT' || code === 'EADDRNOTAVAIL' || code === 'EPROTONOSUPPORT'
 }
 
+/** Mirror pi-ai's provider-env lookup so the bridge sees the same callback host. */
+function providerEnvValue(name: string): string | undefined {
+  const direct = process.env[name]
+  if (direct !== undefined && direct !== '') return direct
+  if (typeof process === 'undefined' || !process.versions?.bun || Object.keys(process.env).length > 0) {
+    return direct
+  }
+  try {
+    const data = readFileSync('/proc/self/environ', 'utf8')
+    for (const entry of data.split('\0')) {
+      const separator = entry.indexOf('=')
+      if (separator > 0 && entry.slice(0, separator) === name) {
+        return entry.slice(separator + 1)
+      }
+    }
+  } catch {
+    // Fall back to whatever process.env exposed.
+  }
+  return direct
+}
+
 function callbackPath(requestUrl: string | undefined): string | undefined {
   try {
     const url = new URL(requestUrl ?? '/', 'http://localhost')
@@ -31,6 +53,42 @@ function callbackPath(requestUrl: string | undefined): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function relayToIpv4(path: string, port: number, response: ServerResponse): void {
+  const upstream = requestHttp({
+    host: '127.0.0.1',
+    method: 'GET',
+    path,
+    port,
+  }, (upstreamResponse) => {
+    const headers = {
+      ...upstreamResponse.headers['cache-control'] === undefined
+        ? {}
+        : { 'Cache-Control': upstreamResponse.headers['cache-control'] },
+      ...upstreamResponse.headers['content-type'] === undefined
+        ? {}
+        : { 'Content-Type': upstreamResponse.headers['content-type'] },
+    }
+    response.writeHead(upstreamResponse.statusCode ?? 502, headers)
+    upstreamResponse.pipe(response)
+  })
+  upstream.setTimeout(3_000, () => {
+    upstream.destroy(new Error('Codex IPv4 callback relay timed out'))
+  })
+  upstream.once('error', () => {
+    if (response.destroyed) return
+    if (response.headersSent) {
+      response.destroy()
+      return
+    }
+    response.writeHead(502, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/plain; charset=utf-8',
+    })
+    response.end('The Codex callback listener was not ready. Return to dsh and retry sign-in.')
+  })
+  upstream.end()
 }
 
 function listen(server: Server, host: string, port: number, ipv6Only = false): Promise<void> {
@@ -75,7 +133,7 @@ async function assertIpv4CallbackPortAvailable(port: number): Promise<void> {
  */
 export async function startCodexIpv6CallbackBridge(
   port = CODEX_CALLBACK_PORT,
-  configuredHost = process.env.PI_OAUTH_CALLBACK_HOST,
+  configuredHost = providerEnvValue('PI_OAUTH_CALLBACK_HOST'),
   ipv6Bridge = true,
 ): Promise<CodexCallbackBridge | undefined> {
   if (configuredHost !== undefined && configuredHost !== '' && configuredHost !== '127.0.0.1') {
@@ -95,12 +153,10 @@ export async function startCodexIpv6CallbackBridge(
       response.end('Callback route not found.')
       return
     }
-    response.writeHead(307, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'text/plain; charset=utf-8',
-      Location: `http://127.0.0.1:${port}${path}`,
-    })
-    response.end('Continuing OpenAI authentication on IPv4 loopback.')
+    // Relay server-side instead of issuing a browser redirect. A second browser
+    // request can be intercepted by proxy/PAC or localhost security policy even
+    // though the first request already reached this Host successfully.
+    relayToIpv4(path, port, response)
   })
 
   try {

@@ -85,6 +85,73 @@
   border-top: 1px solid var(--dsw-alias-border-l2);
 }
 
+.networkStatus {
+  margin-top: 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.networkStatus p {
+  margin: 0;
+}
+
+.networkStatus span {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.networkStatus .error {
+  margin-top: 4px;
+}
+
+.proxySettings {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.proxyModeField {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.proxyModeField select {
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  padding: 0 30px 0 10px;
+  font: inherit;
+}
+
+.proxyModeField select:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+.proxyModeField select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.restartNotice {
+  margin: 8px 0 0;
+  border-left: 2px solid var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-label-secondary);
+  padding-left: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .usagePanel {
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
@@ -289,6 +356,11 @@
 
   .cardHead {
     align-items: flex-start;
+  }
+
+  .proxySettings {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .usageWindowMeta {

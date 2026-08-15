@@ -18,7 +18,7 @@ function closeServer(server: Server): Promise<void> {
 }
 
 describe('Codex IPv6 callback bridge', () => {
-  it('redirects an IPv6 localhost callback to pi-ai on IPv4 loopback', async ({ skip }) => {
+  it('relays an IPv6 localhost callback to pi-ai on IPv4 loopback', async ({ skip }) => {
     const probe = createServer()
     const port = await listenIpv4(probe)
     await closeServer(probe)
@@ -37,7 +37,8 @@ describe('Codex IPv6 callback bridge', () => {
       await listenIpv4(target, port)
       targetListening = true
       const response = await fetch(`http://[::1]:${port}/auth/callback?code=test-code&state=test-state`)
-      expect(response.url).toBe(`http://127.0.0.1:${port}/auth/callback?code=test-code&state=test-state`)
+      expect(response.url).toBe(`http://[::1]:${port}/auth/callback?code=test-code&state=test-state`)
+      expect(response.status).toBe(200)
       await expect(response.text()).resolves.toBe('/auth/callback?code=test-code&state=test-state')
 
       const missing = await fetch(`http://[::1]:${port}/other`, { redirect: 'manual' })
@@ -45,6 +46,25 @@ describe('Codex IPv6 callback bridge', () => {
     } finally {
       await bridge.close()
       if (targetListening) await closeServer(target)
+    }
+  })
+
+  it('returns a retryable error when pi-ai has not opened its IPv4 listener', async ({ skip }) => {
+    const probe = createServer()
+    const port = await listenIpv4(probe)
+    await closeServer(probe)
+    const bridge = await startCodexIpv6CallbackBridge(port, undefined)
+    if (bridge === undefined) {
+      skip()
+      return
+    }
+
+    try {
+      const response = await fetch(`http://[::1]:${port}/auth/callback?code=test&state=test`)
+      expect(response.status).toBe(502)
+      await expect(response.text()).resolves.toContain('retry sign-in')
+    } finally {
+      await bridge.close()
     }
   })
 

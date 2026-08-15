@@ -5,6 +5,10 @@ import type {
   CodexAuthFailureReason,
   CodexAuthState,
   CodexLoginMethod,
+  CodexNetworkIssue,
+  CodexNetworkRoute,
+  CodexNetworkState,
+  CodexProxyMode,
   CodexUsageCredits,
   CodexUsageSnapshot,
   CodexUsageWindow,
@@ -16,6 +20,8 @@ export const CODEX_AUTH_RPC_CHANNEL = '/dsh-codex-provider'
 /** Browser-safe authentication RPC face. */
 export interface CodexAuthRpcClient {
   status(signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
+  network(signal?: AbortSignal): Promise<RpcResult<CodexNetworkState>>
+  setProxyMode(mode: CodexProxyMode, signal?: AbortSignal): Promise<RpcResult<CodexNetworkState>>
   usage(signal?: AbortSignal): Promise<RpcResult<CodexUsageSnapshot | null>>
   login(method: CodexLoginMethod, signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
   cancel(signal?: AbortSignal): Promise<RpcResult<CodexAuthState>>
@@ -44,6 +50,16 @@ export function createCodexAuthRpcClient(rpc: CodexAuthConnectionRpc): CodexAuth
     const state = parseCodexAuthState(result.value)
     return state === undefined ? invalidResponse(endpoint) : { ok: true, value: state }
   }
+  const callNetwork = async (
+    endpoint: 'network' | 'proxy-mode',
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<RpcResult<CodexNetworkState>> => {
+    const result = await rpc.call(CODEX_AUTH_RPC_CHANNEL, endpoint, payload, signal)
+    if (!result.ok) return result
+    const network = parseCodexNetworkState(result.value)
+    return network === undefined ? invalidResponse(endpoint) : { ok: true, value: network }
+  }
   const callUsage = async (signal?: AbortSignal): Promise<RpcResult<CodexUsageSnapshot | null>> => {
     const result = await rpc.call(CODEX_AUTH_RPC_CHANNEL, 'usage', {}, signal)
     if (!result.ok) return result
@@ -53,6 +69,8 @@ export function createCodexAuthRpcClient(rpc: CodexAuthConnectionRpc): CodexAuth
   }
   return {
     status: signal => callAuth('status', {}, signal),
+    network: signal => callNetwork('network', {}, signal),
+    setProxyMode: (mode, signal) => callNetwork('proxy-mode', { mode }, signal),
     usage: callUsage,
     login: (method, signal) => callAuth('login', { method }, signal),
     cancel: signal => callAuth('cancel', {}, signal),
@@ -88,6 +106,23 @@ export function parseCodexAuthState(value: unknown): CodexAuthState | undefined 
         ? { phase: 'failed', method: value.method, reason: value.reason }
         : undefined
     default: return undefined
+  }
+}
+
+/** Validate one secret-free network route returned by the Host. */
+export function parseCodexNetworkState(value: unknown): CodexNetworkState | undefined {
+  if (!isRecord(value)
+    || !isNetworkRoute(value.route)
+    || !isProxyMode(value.activeProxyMode)
+    || !isProxyMode(value.configuredProxyMode)
+    || typeof value.restartRequired !== 'boolean') return undefined
+  if (value.issue !== undefined && !isNetworkIssue(value.issue)) return undefined
+  return {
+    route: value.route,
+    ...(value.issue === undefined ? {} : { issue: value.issue }),
+    activeProxyMode: value.activeProxyMode,
+    configuredProxyMode: value.configuredProxyMode,
+    restartRequired: value.restartRequired,
   }
 }
 
@@ -159,9 +194,28 @@ function invalidResponse(endpoint: string): RpcResult<never> {
   }
 }
 
+function isNetworkRoute(value: unknown): value is CodexNetworkRoute {
+  return value === 'direct-or-tun'
+    || value === 'environment-proxy'
+    || value === 'host-dispatcher'
+    || value === 'system-proxy'
+}
+
+function isProxyMode(value: unknown): value is CodexProxyMode {
+  return value === 'auto' || value === 'environment' || value === 'off'
+}
+
+function isNetworkIssue(value: unknown): value is CodexNetworkIssue {
+  return value === 'proxy-initialization-failed'
+    || value === 'system-proxy-detection-failed'
+    || value === 'unsupported-proxy'
+}
+
 function isFailureReason(value: unknown): value is CodexAuthFailureReason {
   return value === 'account-access'
     || value === 'browser-callback'
+    || value === 'browser-callback-port'
+    || value === 'browser-callback-timeout'
     || value === 'device-code-disabled'
     || value === 'network'
     || value === 'token-exchange'

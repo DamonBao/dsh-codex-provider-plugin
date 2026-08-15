@@ -21,9 +21,13 @@ const ACCOUNT_ACCESS_MARKERS = [
   'unauthorized',
   'workspace',
 ] as const
+const CALLBACK_PORT_MARKERS = [
+  'cannot listen on 127.0.0.1:',
+  'could not listen on [::1]:',
+  'eaddrinuse',
+] as const
 const BROWSER_CALLBACK_MARKERS = [
   'callback',
-  'eaddrinuse',
   'missing authorization code',
   'state mismatch',
   'localhost:1455',
@@ -40,6 +44,16 @@ const NETWORK_MARKERS = [
   'tls',
 ] as const
 
+/** Bound a browser flow that pi-ai would otherwise wait on indefinitely. */
+export const CODEX_BROWSER_CALLBACK_TIMEOUT_MS = 10 * 60_000
+
+class CodexBrowserCallbackTimeoutError extends Error {
+  constructor() {
+    super('Codex browser callback timed out waiting for authorization')
+    this.name = 'CodexBrowserCallbackTimeoutError'
+  }
+}
+
 function containsAny(message: string, markers: readonly string[]): boolean {
   return markers.some(marker => message.includes(marker))
 }
@@ -50,6 +64,8 @@ export function classifyCodexLoginFailure(error: unknown): CodexAuthFailureReaso
   if (message.includes('device code login is not enabled')
     || message.includes('deviceauth_not_enabled')) return 'device-code-disabled'
   if (message.includes('unsupported_country_region_territory')) return 'unsupported-region'
+  if (message.includes('browser callback timed out')) return 'browser-callback-timeout'
+  if (containsAny(message, CALLBACK_PORT_MARKERS)) return 'browser-callback-port'
   if (containsAny(message, ACCOUNT_ACCESS_MARKERS) || /\b(?:401|403)\b/.test(message)) {
     return 'account-access'
   }
@@ -111,6 +127,7 @@ export class CodexAuthService {
     private readonly credentials: CredentialStore,
     private readonly startBrowserCallbackBridge?: CodexCallbackBridgeFactory,
     private readonly reportLoginFailure?: CodexLoginFailureReporter,
+    private readonly browserCallbackTimeoutMs = CODEX_BROWSER_CALLBACK_TIMEOUT_MS,
   ) {}
 
   /** Monotonic credential generation captured by refresh operations. */
@@ -222,22 +239,32 @@ export class CodexAuthService {
 
   private async completeLogin(active: ActiveLogin): Promise<void> {
     let bridge: CodexCallbackBridge | undefined
+    let timeout: NodeJS.Timeout | undefined
     try {
-      if (active.method === 'browser') bridge = await this.startBrowserCallbackBridge?.()
+      if (active.method === 'browser') {
+        bridge = await this.startBrowserCallbackBridge?.()
+        timeout = setTimeout(() => {
+          active.controller.abort(new CodexBrowserCallbackTimeoutError())
+        }, this.browserCallbackTimeoutMs)
+        timeout.unref()
+      }
       const credential = await this.models.login(CODEX_PROVIDER, 'oauth', this.interaction(active))
       if (credential.type !== 'oauth') throw new Error('Codex OAuth returned a non-OAuth credential')
       this.refreshFailed = false
       this.publish({ phase: 'connected', expiresAt: credential.expires })
     } catch (error: unknown) {
-      if (!active.controller.signal.aborted) {
-        this.reportLoginFailure?.(error, active.method)
+      const timeoutError = active.controller.signal.reason instanceof CodexBrowserCallbackTimeoutError
+      if (!active.controller.signal.aborted || timeoutError) {
+        const reportedError = timeoutError ? active.controller.signal.reason : error
+        this.reportLoginFailure?.(reportedError, active.method)
         this.publish({
           phase: 'failed',
           method: active.method,
-          reason: classifyCodexLoginFailure(error),
+          reason: timeoutError ? 'browser-callback-timeout' : classifyCodexLoginFailure(error),
         })
       }
     } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
       try {
         await bridge?.close()
       } catch {

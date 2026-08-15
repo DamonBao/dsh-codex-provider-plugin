@@ -21,7 +21,7 @@ vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
 
 import { CodexAuthCardController } from '../src/client/controller.ts'
 import type { CodexAuthRpcClient } from '../src/rpc-contract.ts'
-import type { CodexAuthState, CodexUsageSnapshot } from '../src/types.ts'
+import type { CodexAuthState, CodexNetworkState, CodexUsageSnapshot } from '../src/types.ts'
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void
@@ -29,10 +29,22 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve }
 }
 
+const NETWORK: CodexNetworkState = {
+  route: 'direct-or-tun',
+  activeProxyMode: 'auto',
+  configuredProxyMode: 'auto',
+  restartRequired: false,
+}
+
 function remote(overrides: Partial<CodexAuthRpcClient>): CodexAuthRpcClient {
   const disconnected: CodexAuthState = { phase: 'disconnected' }
   return {
     status: async () => ({ ok: true, value: disconnected }),
+    network: async () => ({ ok: true, value: NETWORK }),
+    setProxyMode: async mode => ({
+      ok: true,
+      value: { ...NETWORK, configuredProxyMode: mode, restartRequired: mode !== NETWORK.activeProxyMode },
+    }),
     usage: async () => ({ ok: true, value: null }),
     login: async () => ({ ok: true, value: { phase: 'starting', method: 'browser' } }),
     cancel: async () => ({ ok: true, value: disconnected }),
@@ -94,6 +106,36 @@ describe('CodexAuthCardController', () => {
       auth: { phase: 'disconnected' },
       usage: null,
     })
+  })
+
+  it('surfaces a failed network-status RPC instead of staying in loading', async () => {
+    const controller = new CodexAuthCardController(remote({
+      network: vi.fn(async () => { throw new Error('connection reset') }),
+    }))
+
+    await controller.load()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      networkStatus: 'error',
+      network: null,
+    })
+  })
+
+  it('publishes the restart-required snapshot after saving proxy mode', async () => {
+    const setProxyMode = vi.fn(async () => ({
+      ok: true as const,
+      value: { ...NETWORK, configuredProxyMode: 'off' as const, restartRequired: true },
+    }))
+    const controller = new CodexAuthCardController(remote({ setProxyMode }))
+    await controller.load()
+
+    controller.setProxyMode('off')
+    await vi.waitFor(() => {
+      expect(controller.store.getSnapshot()).toMatchObject({
+        action: null,
+        network: { activeProxyMode: 'auto', configuredProxyMode: 'off', restartRequired: true },
+      })
+    })
+    expect(setProxyMode).toHaveBeenCalledWith('off')
   })
 
   it('clears usage and stays actionable when the Host reports reauth-required', async () => {

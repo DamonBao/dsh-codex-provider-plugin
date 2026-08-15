@@ -2,7 +2,7 @@
   "name": "@jcy2387/dsh-codex-provider-plugin",
   "displayName": "OpenAI Codex Provider",
   "description": "OpenAI Codex OAuth provider and native settings UI for DeepSeek Harness",
-  "version": "0.1.0-rc.9",
+  "version": "0.1.0-rc.10",
   "author": "jcy2387",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
@@ -92,6 +92,7 @@
     "@deepseek-ai/dsh-host-apiproxy": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-llm": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/dsh-llm-pi-ai": ">=0.1.0-rc.5 <0.2.0",
+    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.6 <0.2.0",
     "@deepseek-ai/dsh-timeout": ">=0.1.0-rc.5 <0.2.0",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@earendil-works/pi-ai": "^0.82.1",
@@ -110,6 +111,7 @@
     "@deepseek-ai/dsh-host-apiproxy": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm-pi-ai": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.6",
     "@deepseek-ai/dsh-timeout": "0.1.0-rc.6",
     "@deepseek-ai/schemastery": "3.18.1",
     "@earendil-works/pi-ai": "0.82.1",
@@ -121,5 +123,8 @@
     "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "undici": "7.29.0"
   }
 }

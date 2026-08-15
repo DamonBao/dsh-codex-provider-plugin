@@ -3,15 +3,23 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { CodexAuthRpcClient } from '../rpc-contract.ts'
-import type { CodexAuthState, CodexLoginMethod, CodexUsageSnapshot } from '../types.ts'
+import type {
+  CodexAuthState,
+  CodexLoginMethod,
+  CodexNetworkState,
+  CodexProxyMode,
+  CodexUsageSnapshot,
+} from '../types.ts'
 
 /** One UI action crossing the wire. */
-export type CodexAuthAction = 'login' | 'cancel' | 'logout'
+export type CodexAuthAction = 'login' | 'cancel' | 'logout' | 'proxy-mode'
 
 /** Snapshot rendered by the settings page. */
 export interface CodexAuthCardState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   auth: CodexAuthState
+  networkStatus: 'idle' | 'loading' | 'ready' | 'error'
+  network: CodexNetworkState | null
   usageStatus: 'idle' | 'loading' | 'ready' | 'error'
   usage: CodexUsageSnapshot | null
   action: CodexAuthAction | null
@@ -26,6 +34,7 @@ export interface CodexAuthCardFace {
   isLoopback: boolean
   load: () => void
   refresh: () => void
+  setProxyMode: (mode: CodexProxyMode) => void
   login: (method: CodexLoginMethod) => void
   cancel: () => void
   logout: () => void
@@ -36,6 +45,8 @@ export class CodexAuthCardController {
   readonly store = createSnapshotStore<CodexAuthCardState>({
     status: 'idle',
     auth: { phase: 'disconnected' },
+    networkStatus: 'idle',
+    network: null,
     usageStatus: 'idle',
     usage: null,
     action: null,
@@ -46,19 +57,21 @@ export class CodexAuthCardController {
 
   constructor(private readonly remote: CodexAuthRpcClient) {}
 
-  /** Read auth and usage concurrently; the latest invocation wins. */
+  /** Read auth, network, and usage concurrently; the latest invocation wins. */
   async load(silent = false): Promise<void> {
     const generation = ++this.loadGeneration
     if (!silent) {
       this.store.update((state) => {
         state.status = 'loading'
+        state.networkStatus = 'loading'
         state.usageStatus = 'loading'
         state.actionFailed = false
       })
     }
-    // Start both calls together, but publish auth as soon as it arrives so a
+    // Start every call together, but publish auth as soon as it arrives so a
     // slow usage endpoint never prolongs the fast login-status polling loop.
     const authTask = this.remote.status().catch(() => undefined)
+    const networkTask = this.remote.network().catch(() => undefined)
     const usageTask = this.remote.usage().catch(() => undefined)
     const authResult = await authTask
     if (generation !== this.loadGeneration) return
@@ -74,6 +87,17 @@ export class CodexAuthCardController {
         state.actionFailed = false
       }
       if (state.auth.phase !== 'connected') state.usage = null
+    })
+
+    const networkResult = await networkTask
+    if (generation !== this.loadGeneration) return
+    this.store.update((state) => {
+      if (networkResult?.ok === true) {
+        state.networkStatus = 'ready'
+        state.network = networkResult.value
+      } else if (!silent) {
+        state.networkStatus = 'error'
+      }
     })
 
     const usageResult = await usageTask
@@ -99,6 +123,34 @@ export class CodexAuthCardController {
         state.usage = null
       }
     })
+  }
+
+  setProxyMode(mode: CodexProxyMode): void {
+    void this.runProxyMode(mode)
+  }
+
+  private async runProxyMode(mode: CodexProxyMode): Promise<void> {
+    if (this.store.getSnapshot().action !== null) return
+    ++this.loadGeneration
+    this.store.update((state) => {
+      state.action = 'proxy-mode'
+      state.actionFailed = false
+    })
+    try {
+      const result = await this.remote.setProxyMode(mode)
+      if (!result.ok) throw new Error('Codex proxy-mode RPC failed')
+      this.store.update((state) => {
+        state.networkStatus = 'ready'
+        state.network = result.value
+        state.action = null
+        state.actionFailed = false
+      })
+    } catch {
+      this.store.update((state) => {
+        state.action = null
+        state.actionFailed = true
+      })
+    }
   }
 
   login(method: CodexLoginMethod): void {
@@ -142,6 +194,7 @@ export class CodexAuthCardController {
       isLoopback,
       load: () => { void this.load() },
       refresh: () => { void this.load(true) },
+      setProxyMode: mode => { this.setProxyMode(mode) },
       login: method => { this.login(method) },
       cancel: () => { this.cancel() },
       logout: () => { this.logout() },

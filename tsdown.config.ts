@@ -17,7 +17,7 @@ export default defineConfig([
     dts: false,
     clean: false,
     deps: {
-      neverBundle: [/^@deepseek-ai\//, /^@earendil-works\//, 'react'],
+      neverBundle: [/^@deepseek-ai\//, /^@earendil-works\//, 'react', 'undici'],
     },
   },
   clientBundle(packageName),

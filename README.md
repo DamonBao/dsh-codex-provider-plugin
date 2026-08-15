@@ -99,6 +99,7 @@ Every field is optional:
     streamIdleTimeoutMs: 300000
     ipv6CallbackBridge: true
     proactiveRefresh: true
+    proxyMode: auto
 ```
 
 - `credentialRef`: reference used by the Harness credential provider for serialized OAuth state.
@@ -109,6 +110,18 @@ Every field is optional:
 - `retryPolicy`: standard Harness LLM retry configuration.
 - `ipv6CallbackBridge`: temporarily bridge `[::1]:1455` to pi-ai's `127.0.0.1:1455` listener during browser sign-in. Enabled by default; disable it when `PI_OAUTH_CALLBACK_HOST` is explicitly managed by the deployment. The IPv4 port-availability check remains active when only the bridge is disabled.
 - `proactiveRefresh`: refresh the access token in the background a few minutes before it expires, so the first request after expiry never pays the token round-trip. Enabled by default; disable it to fall back to purely lazy, request-driven refresh.
+- `proxyMode`: `auto` (default) reads `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`, then falls back to the macOS system proxy, Windows current-user proxy, Linux GNOME GSettings, or KDE `kioslaverc`; `environment` reads only environment variables; `off` installs no plugin proxy dispatcher.
+
+## Network and proxy routing
+
+- **HTTP(S) proxies:** the plugin automatically routes OpenAI/ChatGPT Host requests through a supported environment or system proxy. OAuth, token refresh, usage lookup, and SSE/WebSocket model calls share the same dispatcher. Proxy addresses and credentials never cross browser RPC.
+- **Linux:** detection order is environment → GNOME → KDE. Servers, containers, and other desktops should use the standard `HTTP(S)_PROXY` variables. Linux TUN needs no extra wiring.
+- **TUN mode:** TUN is transparent to Node and requires no proxy setup. The Settings UI therefore reports “System route (direct or TUN)” rather than guessing from unreliable interface names.
+- **Scope:** automatic routing intercepts only `openai.com` and `chatgpt.com`; every other Harness request stays on the previous dispatcher. A custom Host dispatcher is preserved and takes precedence. `localhost`, `127.0.0.1`, and `[::1]` always bypass the proxy.
+- **Limits:** the automatic dispatcher supports HTTP/HTTPS proxies; it does not execute PAC or connect directly to SOCKS. Enable the proxy application's HTTP port and set `HTTPS_PROXY`, or use TUN.
+- **Settings switch:** choose **Auto-detect**, **Environment proxy only**, or **Disable explicit proxy** on **Settings → OpenAI Codex**. Harness persists the choice under the `openai-codex` section of `$DSH_HOME/settings.yaml`, above the composition-level `proxyMode` default. After saving, the page explicitly asks you to restart `dsh web`; the running dispatcher is intentionally not hot-switched.
+
+Proxy configuration is read when the plugin starts. Restart `dsh web` after changing the environment or system proxy.
 
 ## Token refresh
 
@@ -124,14 +137,16 @@ The Settings UI reports a stable diagnostic code without returning OAuth respons
 | Code | Meaning and next check |
 | --- | --- |
 | `CODEX_AUTH_ACCOUNT_ACCESS` | OpenAI did not issue usable Codex credentials. Check MFA, the selected ChatGPT workspace, and workspace Codex permissions. |
-| `CODEX_AUTH_BROWSER_CALLBACK` | Authorization did not reach the Host. Run the browser on the Host machine and check whether `localhost:1455` is blocked or occupied. The default IPv6 bridge handles systems that resolve `localhost` to `::1`. |
+| `CODEX_AUTH_BROWSER_CALLBACK` | The Host did not receive a valid authorization code. Keep browser and Host on the same machine, do not restart dsh during sign-in, and check whether the browser blocks `localhost:1455`. |
+| `CODEX_AUTH_BROWSER_CALLBACK_PORT` | The Host could not listen on `localhost:1455`. Stop another dsh/Codex login or the application occupying that port, then retry. |
+| `CODEX_AUTH_BROWSER_CALLBACK_TIMEOUT` | No callback arrived within ten minutes. Start a new login without restarting dsh during the flow, or use device-code sign-in. |
 | `CODEX_AUTH_DEVICE_CODE_DISABLED` | Enable device-code sign-in in personal ChatGPT security settings or workspace permissions. |
 | `CODEX_AUTH_NETWORK` | Check the Host's proxy, DNS, TLS trust, and firewall access to OpenAI authentication services. |
 | `CODEX_AUTH_TOKEN_EXCHANGE` | Authorization returned but credential exchange failed. Retry, then check the Host clock and proxy. |
 | `CODEX_AUTH_UNSUPPORTED_REGION` | Browser authorization completed, but the Host network exits from a country or region OpenAI does not support. Use a Host network that complies with OpenAI availability and terms, then start a new login. |
 | `CODEX_AUTH_UNKNOWN` | Test official Codex sign-in on the same Host to separate an account/environment failure from a plugin compatibility issue. |
 
-Browser sign-in redirects to `http://localhost:1455/auth/callback`, so it is suitable only when the browser and dsh Host run on the same machine. Before starting pi-ai, the plugin verifies that `127.0.0.1:1455` is available and fails immediately with `CODEX_AUTH_BROWSER_CALLBACK` when another process owns it. While browser login is active, it also opens an IPv6-only `[::1]:1455` listener that redirects the exact callback path and query to pi-ai on IPv4, then closes it when the attempt ends. It never listens on a LAN address. Full provider errors stay in the Host log; the browser receives only the diagnostic codes above. For a headless Host, use device-code sign-in after enabling it for the account or workspace. See [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth).
+Browser sign-in redirects to `http://localhost:1455/auth/callback`, so it is suitable only when the browser and dsh Host run on the same machine. Before starting pi-ai, the plugin verifies that `127.0.0.1:1455` is available and fails immediately with `CODEX_AUTH_BROWSER_CALLBACK_PORT` when another process owns it. While browser login is active, it also opens an IPv6-only `[::1]:1455` listener that relays the exact callback path and query server-side to pi-ai on IPv4, then returns pi-ai's response and closes when the attempt ends. This avoids a second browser redirect that a proxy, PAC, or localhost security policy could intercept. It never listens on a LAN address. A browser flow with no callback ends after ten minutes instead of occupying the login state indefinitely. Full provider errors stay in the Host log; the browser receives only the diagnostic codes above. For a headless Host, use device-code sign-in after enabling it for the account or workspace. See [OpenAI Codex authentication](https://learn.chatgpt.com/docs/auth).
 
 ## Current scope
 
