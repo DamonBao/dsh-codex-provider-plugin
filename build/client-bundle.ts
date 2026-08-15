@@ -96,7 +96,7 @@ export function clientBundle(id: string, entry = 'src/client/index.ts'): UserCon
       },
     ],
     outputOptions: {
-      entryFileNames: 'client.js',
+      entryFileNames: 'client.cjs',
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
       footer: 'return module.exports; } });',
       intro: 'var module = { exports: {} }; var exports = module.exports;',

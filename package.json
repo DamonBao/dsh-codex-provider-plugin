@@ -2,7 +2,7 @@
   "name": "@jcy2387/dsh-codex-provider-plugin",
   "displayName": "OpenAI Codex Provider",
   "description": "OpenAI Codex OAuth provider and native settings UI for DeepSeek Harness",
-  "version": "0.1.0-rc.8",
+  "version": "0.1.0-rc.9",
   "author": "jcy2387",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
@@ -30,18 +30,18 @@
     },
     "./client": {
       "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/client.js"
+      "default": "./lib/client.cjs"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
-    "lib/client.js",
-    "lib/client.js.map",
+    "lib/client.cjs",
+    "lib/client.cjs.map",
     "lib/types/**/*.d.ts",
-    "lib/types/**/*.d.ts.map",
     "cordis.patch.yml",
+    "docs/images/openai-codex-settings.svg",
     "README.md",
     "README.zh.md",
     "LICENSE"
@@ -50,10 +50,9 @@
     "build": "node scripts/clean.mjs && tsc -p tsconfig.build.host.json && tsc -p tsconfig.build.client.json && tsdown",
     "bundle": "tsdown",
     "check": "pnpm run typecheck && pnpm test && pnpm run build && pnpm run publint",
-    "prepare": "tsdown",
-    "prepack": "pnpm run build",
+    "prepare": "pnpm run build",
     "prepublishOnly": "pnpm run check",
-    "publint": "publint",
+    "publint": "publint --strict",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },

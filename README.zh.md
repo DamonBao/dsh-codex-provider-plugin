@@ -35,7 +35,7 @@ dsh web
 设置页大致如下：
 
 <p align="center">
-  <img src="./docs/images/openai-codex-settings.svg" alt="DeepSeek Harness 中的 OpenAI Codex 设置页" width="900">
+  <img src="https://raw.githubusercontent.com/DamonBao/dsh-codex-provider-plugin/main/docs/images/openai-codex-settings.svg" alt="DeepSeek Harness 中的 OpenAI Codex 设置页" width="900">
 </p>
 
 1. 执行 `dsh web` 启动 Web UI。
@@ -57,7 +57,8 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 也可以安装指定版本：
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
+VERSION="$(npm view @jcy2387/dsh-codex-provider-plugin version)"
+dsh plugin --profile web add "@jcy2387/dsh-codex-provider-plugin@$VERSION" --save-exact
 ```
 
 确认安装版本后重启 `dsh web`，并在浏览器中强制刷新，避免继续使用旧的客户端 bundle：
@@ -149,6 +150,6 @@ pnpm run publint
 构建产物：
 
 - `lib/index.js`：Host 插件。
-- `lib/client.js`：loader-compatible browser 插件，CSS Modules 已内联。
+- `lib/client.cjs`：loader-compatible browser 插件，CSS Modules 已内联。
 - `lib/types/**`：Host 与 browser declaration files。
 - `cordis.patch.yml`：由 `dsh.bundle` manifest 激活的 profile layer。

@@ -250,6 +250,39 @@ describe('CodexAuthService', () => {
     await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated })
   })
 
+  it('ignores a refresh failure started before a successful reconnect', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const rotated = { ...OAUTH, expires: OAUTH.expires + 3_600_000 }
+    const auth = new CodexAuthService(models(credentials, async () => rotated), credentials)
+    const staleGeneration = auth.getRefreshGeneration()
+
+    auth.noteRefreshFailure(new Error('invalid_grant'), staleGeneration, OAUTH.expires)
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    auth.login('device')
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated.expires })
+    })
+
+    auth.noteRefreshFailure(new Error('invalid_grant'), staleGeneration, OAUTH.expires)
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated.expires })
+  })
+
+  it('ignores refresh outcomes that settle after dispose', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+    const staleGeneration = auth.getRefreshGeneration()
+
+    await auth.status()
+    await auth.dispose()
+    auth.noteRefreshFailure(new Error('invalid_grant'), staleGeneration, OAUTH.expires)
+    auth.noteRefreshSuccess(OAUTH.expires + 3_600_000, staleGeneration)
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+  })
+
   it('clears the dead-refresh flag after a successful login or logout', async () => {
     const credentials = store()
     credentials.current = OAUTH

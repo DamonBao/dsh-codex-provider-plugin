@@ -102,6 +102,9 @@ export class CodexAuthService {
    * connected after startup, a cancelled reconnect, or a failed one.
    */
   private refreshFailed = false
+  /** Invalidates request-path refresh outcomes started before login/logout. */
+  private refreshGeneration = 0
+  private disposed = false
 
   constructor(
     private readonly models: CodexAuthModels,
@@ -109,6 +112,11 @@ export class CodexAuthService {
     private readonly startBrowserCallbackBridge?: CodexCallbackBridgeFactory,
     private readonly reportLoginFailure?: CodexLoginFailureReporter,
   ) {}
+
+  /** Monotonic credential generation captured by refresh operations. */
+  getRefreshGeneration(): number {
+    return this.refreshGeneration
+  }
 
   /** Register a Host-only observer notified after every published state change. */
   setStateListener(listener: ((state: CodexAuthState) => void) | undefined): void {
@@ -173,14 +181,23 @@ export class CodexAuthService {
   }
 
   /** Record a terminal token-refresh failure; Host-only and secret-free. */
-  noteRefreshFailure(_error: unknown): void {
+  noteRefreshFailure(_error: unknown, generation?: number, failedExpires?: number): void {
+    if (this.disposed) return
+    if (generation !== undefined && generation !== this.refreshGeneration) return
+    // A failure for credential A must not condemn credential B after a
+    // successful reconnect, even if the old request settles later.
+    if (failedExpires !== undefined
+      && this.current.phase === 'connected'
+      && this.current.expiresAt !== failedExpires) return
     this.refreshFailed = true
     if (this.active !== undefined) return
     if (this.current.phase === 'connected') this.publish({ phase: 'reauth-required' })
   }
 
   /** Record a successful token refresh after a terminal failure. */
-  noteRefreshSuccess(expiresAt: number): void {
+  noteRefreshSuccess(expiresAt: number, generation?: number): void {
+    if (this.disposed) return
+    if (generation !== undefined && generation !== this.refreshGeneration) return
     this.refreshFailed = false
     if (this.active !== undefined) return
     if (this.current.phase === 'reauth-required' || this.current.phase === 'failed') {
@@ -191,6 +208,7 @@ export class CodexAuthService {
   /** Start browser-callback or device-code OAuth in background. */
   login(method: CodexLoginMethod): CodexAuthState {
     if (this.active !== undefined) return this.current
+    this.refreshGeneration += 1
     const active: ActiveLogin = {
       controller: new AbortController(),
       method,
@@ -242,6 +260,7 @@ export class CodexAuthService {
 
   /** Cancel active work and remove the stored credential. */
   async logout(): Promise<CodexAuthState> {
+    this.refreshGeneration += 1
     await this.stopActive('Codex logout requested')
     await this.models.logout(CODEX_PROVIDER)
     this.refreshFailed = false
@@ -255,8 +274,10 @@ export class CodexAuthService {
     await active.task
   }
 
-  /** Drain background login work during plugin teardown. */
+  /** Drain background login work during plugin teardown and reject stale outcomes. */
   dispose(): Promise<void> {
+    this.disposed = true
+    this.refreshGeneration += 1
     return this.stopActive('Codex provider disposed')
   }
 }

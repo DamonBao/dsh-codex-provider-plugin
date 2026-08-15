@@ -35,7 +35,7 @@ dsh web
 The settings page looks like this:
 
 <p align="center">
-  <img src="./docs/images/openai-codex-settings.svg" alt="OpenAI Codex settings page in DeepSeek Harness" width="900">
+  <img src="https://raw.githubusercontent.com/DamonBao/dsh-codex-provider-plugin/main/docs/images/openai-codex-settings.svg" alt="OpenAI Codex settings page in DeepSeek Harness" width="900">
 </p>
 
 1. Start the Web UI with `dsh web`.
@@ -57,7 +57,8 @@ dsh plugin --profile web update @jcy2387/dsh-codex-provider-plugin --latest
 To install an exact version instead:
 
 ```sh
-dsh plugin --profile web add @jcy2387/dsh-codex-provider-plugin@0.1.0-rc.8 --save-exact
+VERSION="$(npm view @jcy2387/dsh-codex-provider-plugin version)"
+dsh plugin --profile web add "@jcy2387/dsh-codex-provider-plugin@$VERSION" --save-exact
 ```
 
 Verify the installed version, restart `dsh web`, and force-refresh the browser so it does not reuse the previous client bundle:
@@ -149,6 +150,6 @@ pnpm run publint
 Build outputs:
 
 - `lib/index.js`: Host plugin.
-- `lib/client.js`: loader-compatible browser plugin with inline CSS Modules.
+- `lib/client.cjs`: loader-compatible browser plugin with inline CSS Modules.
 - `lib/types/**`: Host and browser declarations.
 - `cordis.patch.yml`: profile layer activated by the `dsh.bundle` manifest.

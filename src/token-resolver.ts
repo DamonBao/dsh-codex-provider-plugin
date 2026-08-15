@@ -13,8 +13,10 @@ export const DEFAULT_REFRESH_RETRY_DELAYS_MS: readonly number[] = [60_000, 300_0
 
 /** Host-only recipient of background refresh outcomes. */
 export interface CodexRefreshSink {
-  noteRefreshSuccess(expiresAt: number): void
-  noteRefreshFailure(error: unknown): void
+  /** Monotonic login/logout generation used to reject outcomes from stale requests. */
+  getRefreshGeneration(): number
+  noteRefreshSuccess(expiresAt: number, generation: number): void
+  noteRefreshFailure(error: unknown, generation: number, failedExpires?: number): void
 }
 
 /** Tunable proactive-refresh behavior. */
@@ -41,11 +43,18 @@ export interface CodexTokenRefresherOptions {
 export function isTerminalRefreshError(error: unknown): boolean {
   const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase()
   if (!message.includes('token refresh') && !message.includes('oauth refresh failed')) return false
-  return message.includes('invalid_grant')
+
+  // Server and rate-limit failures stay retryable even when their diagnostic
+  // body happens to contain words such as "expired".
+  const status = /\((\d{3})\)/.exec(message)?.[1]
+  if (status !== undefined && Number(status) >= 500) return false
+  if (status === '429') return false
+
+  const explicitTokenRejection = message.includes('invalid_grant')
     || message.includes('invalid_refresh_token')
-    || message.includes('expired')
-    || message.includes('revoked')
-    || /\b(?:401|403)\b/.test(message)
+    || /refresh[ _-]?token(?:[ _-]+(?:is|has|was))?[ _-]+(?:expired|revoked)/.test(message)
+    || /(?:expired|revoked)[ _-]+refresh[ _-]?token/.test(message)
+  return explicitTokenRejection || status === '401' || status === '403'
 }
 
 /** Result of one locked rotation attempt. */
@@ -66,12 +75,16 @@ type RefreshOutcome =
 export class CodexTokenRefresher implements CodexUsageModels {
   private timer: ReturnType<typeof setTimeout> | undefined
   private inFlight: Promise<void> | undefined
-  /** Invalidates an in-flight tick's scheduling decisions on stop/dispose. */
+  /** Invalidates every asynchronous scheduling decision on stop/dispose. */
   private generation = 0
+  /** Whether background scheduling is currently desired. */
+  private scheduling = false
   private retryIndex = 0
   private refreshFailed = false
   /** Expiry of the credential whose refresh failed; recovery must differ from it. */
   private failedExpires: number | undefined
+  /** Upper bound for a failed lazy refresh when its credential could not be read. */
+  private failedBeforeOrAt: number | undefined
   private disposed = false
 
   constructor(
@@ -83,19 +96,26 @@ export class CodexTokenRefresher implements CodexUsageModels {
 
   /** Resolve one fresh bearer token, surfacing terminal refresh failures. */
   async getAuth(providerId: string): Promise<AuthResult | undefined> {
+    const authGeneration = this.currentAuthGeneration()
     try {
       const result = await this.models.getAuth(providerId)
-      await this.noteSuccess()
+      await this.noteSuccess(authGeneration)
       return result
     } catch (error) {
-      if (isTerminalRefreshError(error)) {
+      if (isTerminalRefreshError(error) && this.isAuthCurrent(authGeneration)) {
+        // A lazy pi-ai refresh can only fail after the credential expires. Keep
+        // that time as rotation evidence when the credential backend hiccups.
+        const failedBeforeOrAt = Date.now()
         let failedExpires: number | undefined
         try {
           failedExpires = await this.readExpires()
         } catch {
-          // Keep the previous baseline when the store cannot be read.
+          // The time bound above still lets a later, future-dated credential
+          // prove that a real rotation happened.
         }
-        this.handleRefreshFailure(error, failedExpires)
+        if (this.isAuthCurrent(authGeneration)) {
+          this.handleRefreshFailure(error, failedExpires, failedBeforeOrAt, authGeneration)
+        }
       }
       throw error
     }
@@ -103,7 +123,12 @@ export class CodexTokenRefresher implements CodexUsageModels {
 
   /** Arm the proactive timer from the currently stored credential, if any. */
   start(): Promise<void> {
-    return this.settle()
+    if (this.disposed || !this.proactive) return Promise.resolve()
+    if (!this.scheduling) {
+      this.scheduling = true
+      this.generation += 1
+    }
+    return this.settle(this.generation)
   }
 
   /** Re-arm or stop the proactive timer from externally published auth state. */
@@ -112,9 +137,14 @@ export class CodexTokenRefresher implements CodexUsageModels {
       case 'connected':
         // A connected publish means the Host proved life (login, or a
         // rotation this refresher reported), so any failure baseline kept
-        // here is obsolete.
+        // here is obsolete and background scheduling may start a new epoch.
         this.refreshFailed = false
         this.failedExpires = undefined
+        this.failedBeforeOrAt = undefined
+        if (!this.scheduling) {
+          this.scheduling = true
+          this.generation += 1
+        }
         this.arm(state.expiresAt)
         break
       case 'reauth-required':
@@ -126,8 +156,9 @@ export class CodexTokenRefresher implements CodexUsageModels {
     }
   }
 
-  /** Stop the proactive timer and invalidate an in-flight tick's scheduling. */
+  /** Stop the proactive timer and invalidate every pending scheduling decision. */
   stop(): void {
+    this.scheduling = false
     this.generation += 1
     this.clearTimer()
   }
@@ -135,6 +166,7 @@ export class CodexTokenRefresher implements CodexUsageModels {
   /** Stop all background work during plugin teardown. */
   dispose(): void {
     this.disposed = true
+    this.scheduling = false
     this.generation += 1
     this.clearTimer()
   }
@@ -148,7 +180,15 @@ export class CodexTokenRefresher implements CodexUsageModels {
   }
 
   private isCurrent(generation: number): boolean {
-    return !this.disposed && this.generation === generation
+    return !this.disposed && this.scheduling && this.generation === generation
+  }
+
+  private currentAuthGeneration(): number {
+    return this.sink.getRefreshGeneration()
+  }
+
+  private isAuthCurrent(generation: number): boolean {
+    return !this.disposed && this.currentAuthGeneration() === generation
   }
 
   private delayFor(expiresAt: number): number {
@@ -161,20 +201,21 @@ export class CodexTokenRefresher implements CodexUsageModels {
    * schedule — least surprise for retry backoff and in-flight ticks.
    */
   private arm(expiresAt: number): void {
-    if (this.disposed || !this.proactive || this.timer !== undefined || this.inFlight !== undefined) return
+    if (this.disposed || !this.proactive || !this.scheduling
+      || this.timer !== undefined || this.inFlight !== undefined) return
     this.setTimer(this.delayFor(expiresAt))
   }
 
   /** Re-arm from within a tick, replacing the consumed (or stale) timer. */
   private rearm(expiresAt: number): void {
-    if (this.disposed || !this.proactive) return
+    if (this.disposed || !this.proactive || !this.scheduling) return
     this.clearTimer()
     this.retryIndex = 0
     this.setTimer(this.delayFor(expiresAt))
   }
 
   private scheduleRetry(): void {
-    if (this.disposed || !this.proactive || this.timer !== undefined) return
+    if (this.disposed || !this.proactive || !this.scheduling || this.timer !== undefined) return
     const configured = this.options.retryDelaysMs ?? DEFAULT_REFRESH_RETRY_DELAYS_MS
     const delays = configured.length > 0 ? configured : DEFAULT_REFRESH_RETRY_DELAYS_MS
     // delays is non-empty here; the fallback only satisfies noUncheckedIndexedAccess.
@@ -198,11 +239,14 @@ export class CodexTokenRefresher implements CodexUsageModels {
 
   /** Single-flight tick: concurrent fires share the running refresh. */
   private tick(): Promise<void> {
-    this.inFlight ??= this.runTick()
+    const generation = this.generation
+    this.inFlight ??= this.runTick(generation)
       .catch(() => undefined) // scheduling must never produce an unhandled rejection
       .finally(() => {
         this.inFlight = undefined
-        void this.settle()
+        // Honor the latest desired state: stop() leaves scheduling false,
+        // while a newer connected/start epoch should establish a fresh timer.
+        void this.settle(this.generation)
       })
     return this.inFlight
   }
@@ -212,32 +256,34 @@ export class CodexTokenRefresher implements CodexUsageModels {
    * credential re-arms, a missing credential stays quiet, a read hiccup
    * retries, and a known-dead credential keeps the timer stopped.
    */
-  private async settle(): Promise<void> {
-    if (this.disposed || !this.proactive || this.refreshFailed) return
+  private async settle(generation: number): Promise<void> {
+    if (!this.isCurrent(generation) || !this.proactive || this.refreshFailed) return
     if (this.timer !== undefined || this.inFlight !== undefined) return
     let expires: number | undefined
     try {
       expires = await this.readExpires()
     } catch {
-      this.scheduleRetry()
+      if (this.isCurrent(generation)) this.scheduleRetry()
       return
     }
+    if (!this.isCurrent(generation) || this.refreshFailed) return
     if (expires !== undefined) this.arm(expires)
   }
 
-  private async runTick(): Promise<void> {
+  private async runTick(generation: number): Promise<void> {
     this.clearTimer()
-    if (this.disposed) return
-    const generation = this.generation
+    if (!this.isCurrent(generation)) return
+    const authGeneration = this.currentAuthGeneration()
     let storedExpires: number | undefined
     try {
       storedExpires = await this.readExpires()
     } catch {
-      // A credential-store hiccup is transient; keep the schedule alive.
-      if (this.isCurrent(generation)) this.scheduleRetry()
+      // A credential-store hiccup is transient; keep the schedule alive only
+      // for the same scheduler and authenticated credential generation.
+      if (this.isCurrent(generation) && this.isAuthCurrent(authGeneration)) this.scheduleRetry()
       return
     }
-    if (!this.isCurrent(generation)) return
+    if (!this.isCurrent(generation) || !this.isAuthCurrent(authGeneration)) return
     if (storedExpires === undefined) return // logged out meanwhile; stop quietly
     if (Date.now() < storedExpires - this.margin) {
       // Another path already rotated the credential; re-arm without a request.
@@ -246,14 +292,15 @@ export class CodexTokenRefresher implements CodexUsageModels {
     }
     try {
       const outcome = await this.refreshStored()
-      // A completed rotation is ground truth and survives a concurrent
-      // stop(); only its scheduling consequences are invalidated.
+      if (!this.isAuthCurrent(authGeneration)) return
+      // A completed rotation is ground truth and may disprove a concurrent
+      // terminal failure; only stale scheduling consequences are discarded.
       if (outcome.outcome === 'missing') return
       if (this.isCurrent(generation)) this.rearm(outcome.expires)
-      this.noteRotated(outcome.expires, outcome.outcome === 'rotated')
+      this.noteRotated(outcome.expires, outcome.outcome === 'rotated', authGeneration)
     } catch (error) {
-      if (!this.isCurrent(generation)) return
-      this.handleRefreshFailure(error, storedExpires)
+      if (!this.isCurrent(generation) || !this.isAuthCurrent(authGeneration)) return
+      this.handleRefreshFailure(error, storedExpires, storedExpires, authGeneration)
       if (!isTerminalRefreshError(error)) this.scheduleRetry()
     }
   }
@@ -280,38 +327,61 @@ export class CodexTokenRefresher implements CodexUsageModels {
   }
 
   /** Recovery from a terminal failure requires evidence the failed credential rotated. */
-  private async noteSuccess(): Promise<void> {
-    if (!this.refreshFailed) return
+  private async noteSuccess(authGeneration: number): Promise<void> {
+    if (!this.refreshFailed || !this.isAuthCurrent(authGeneration)) return
     let expires: number | undefined
     try {
       expires = await this.readExpires()
     } catch {
       return // keep the flag; the next success retries
     }
-    if (expires === undefined) return // logged out meanwhile
-    this.noteRotated(expires, false)
+    if (!this.isAuthCurrent(authGeneration) || expires === undefined) return
+    this.noteRotated(expires, false, authGeneration)
   }
 
   /** A proven rotation clears any earlier terminal failure and notifies the sink. */
-  private noteRotated(expires: number, rotated: boolean): void {
-    if (!this.refreshFailed) return
+  private noteRotated(expires: number, rotated: boolean, authGeneration: number): void {
+    if (!this.refreshFailed || !this.isAuthCurrent(authGeneration)) return
     if (!rotated) {
-      // The same expiry pi-ai already failed to refresh proves nothing.
-      if (this.failedExpires === undefined || expires === this.failedExpires) return
+      // The same expiry pi-ai already failed to refresh proves nothing. When
+      // that baseline was unreadable, a future expiry beyond the lazy
+      // failure instant proves pi-ai or another process actually rotated it.
+      if (this.failedExpires !== undefined && expires === this.failedExpires) return
+      if (this.failedExpires === undefined
+        && (this.failedBeforeOrAt === undefined || expires <= this.failedBeforeOrAt)) return
     }
     this.refreshFailed = false
     this.failedExpires = undefined
-    this.sink.noteRefreshSuccess(expires)
+    this.failedBeforeOrAt = undefined
+    try {
+      this.sink.noteRefreshSuccess(expires, authGeneration)
+    } catch {
+      // A Host observer must never turn a successful token resolution into a failure.
+    }
   }
 
   /** Terminal failures stop the timer and surface reauth; transient ones do neither. */
-  private handleRefreshFailure(error: unknown, failedExpires?: number): void {
-    if (!isTerminalRefreshError(error)) return
+  private handleRefreshFailure(
+    error: unknown,
+    failedExpires: number | undefined,
+    failedBeforeOrAt: number,
+    authGeneration: number,
+  ): void {
+    if (!isTerminalRefreshError(error) || !this.isAuthCurrent(authGeneration)) return
     this.refreshFailed = true
-    if (failedExpires !== undefined) this.failedExpires = failedExpires
+    this.failedExpires = failedExpires
+    this.failedBeforeOrAt = failedBeforeOrAt
     this.stop()
-    this.options.onRefreshFailure?.(error)
-    this.sink.noteRefreshFailure(error)
+    try {
+      this.options.onRefreshFailure?.(error)
+    } catch {
+      // Logging must not replace the provider's original refresh exception.
+    }
+    try {
+      this.sink.noteRefreshFailure(error, authGeneration, failedExpires)
+    } catch {
+      // State observers are best-effort; the request still receives the original error.
+    }
   }
 
   private async readExpires(): Promise<number | undefined> {
