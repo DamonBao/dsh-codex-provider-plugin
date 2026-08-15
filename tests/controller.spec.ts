@@ -95,4 +95,19 @@ describe('CodexAuthCardController', () => {
       usage: null,
     })
   })
+
+  it('clears usage and stays actionable when the Host reports reauth-required', async () => {
+    const controller = new CodexAuthCardController(remote({
+      status: vi.fn(async () => ({ ok: true as const, value: { phase: 'reauth-required' as const } })),
+      usage: vi.fn(async () => ({ ok: true as const, value: USAGE })),
+    }))
+
+    await controller.load()
+    expect(controller.store.getSnapshot()).toMatchObject({
+      status: 'ready',
+      auth: { phase: 'reauth-required' },
+      usage: null,
+      action: null,
+    })
+  })
 })

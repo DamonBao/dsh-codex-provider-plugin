@@ -94,6 +94,7 @@ interface ActiveLogin {
 export class CodexAuthService {
   private active: ActiveLogin | undefined
   private current: CodexAuthState = { phase: 'disconnected' }
+  private stateListener: ((state: CodexAuthState) => void) | undefined
 
   constructor(
     private readonly models: CodexAuthModels,
@@ -102,8 +103,18 @@ export class CodexAuthService {
     private readonly reportLoginFailure?: CodexLoginFailureReporter,
   ) {}
 
+  /** Register a Host-only observer notified after every published state change. */
+  setStateListener(listener: ((state: CodexAuthState) => void) | undefined): void {
+    this.stateListener = listener
+  }
+
   private publish(state: CodexAuthState): CodexAuthState {
     this.current = state
+    try {
+      this.stateListener?.(state)
+    } catch {
+      // A broken Host-side observer must never corrupt the login state machine.
+    }
     return state
   }
 
@@ -140,9 +151,28 @@ export class CodexAuthService {
   async status(): Promise<CodexAuthState> {
     if (this.active !== undefined) return this.current
     const stored = await this.credentials.read(CODEX_PROVIDER)
-    if (stored?.type === 'oauth') return this.publish({ phase: 'connected', expiresAt: stored.expires })
+    if (stored?.type === 'oauth') {
+      // A stored credential outranks nothing once refresh has terminally failed:
+      // the refresh token is dead even though the credential file still exists.
+      if (this.current.phase === 'reauth-required') return this.current
+      return this.publish({ phase: 'connected', expiresAt: stored.expires })
+    }
     if (this.current.phase === 'failed') return this.current
     return this.publish({ phase: 'disconnected' })
+  }
+
+  /** Record a terminal token-refresh failure; Host-only and secret-free. */
+  noteRefreshFailure(_error: unknown): void {
+    if (this.active !== undefined) return
+    if (this.current.phase !== 'connected') return
+    this.publish({ phase: 'reauth-required' })
+  }
+
+  /** Record a successful token refresh after a terminal failure. */
+  noteRefreshSuccess(expiresAt: number): void {
+    if (this.active !== undefined) return
+    if (this.current.phase !== 'reauth-required') return
+    this.publish({ phase: 'connected', expiresAt })
   }
 
   /** Start browser-callback or device-code OAuth in background. */
@@ -189,9 +219,9 @@ export class CodexAuthService {
   async cancel(): Promise<CodexAuthState> {
     await this.stopActive('Codex login cancelled')
     const stored = await this.credentials.read(CODEX_PROVIDER)
-    return this.publish(stored?.type === 'oauth'
-      ? { phase: 'connected', expiresAt: stored.expires }
-      : { phase: 'disconnected' })
+    if (stored?.type !== 'oauth') return this.publish({ phase: 'disconnected' })
+    if (this.current.phase === 'reauth-required') return this.current
+    return this.publish({ phase: 'connected', expiresAt: stored.expires })
   }
 
   /** Cancel active work and remove the stored credential. */

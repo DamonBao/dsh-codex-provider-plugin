@@ -156,4 +156,60 @@ describe('CodexAuthService', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('keeps reauth-required visible while a dead credential remains stored', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+    auth.noteRefreshFailure(new Error('OAuth refresh failed for openai-codex: invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+    // Cancelling nothing must not resurrect the dead credential as connected.
+    await expect(auth.cancel()).resolves.toEqual({ phase: 'reauth-required' })
+  })
+
+  it('recovers to connected after a successful refresh and forgets logout', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    await auth.status()
+    auth.noteRefreshSuccess(OAUTH.expires + 60_000)
+    // A stray success while connected changes nothing.
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+
+    const rotated = OAUTH.expires + 3_600_000
+    credentials.current = { ...OAUTH, expires: rotated }
+    auth.noteRefreshSuccess(rotated)
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated })
+  })
+
+  it('ignores refresh failure once the credential is gone', async () => {
+    const credentials = store()
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'disconnected' })
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    await expect(auth.status()).resolves.toEqual({ phase: 'disconnected' })
+  })
+
+  it('notifies the state listener without letting it corrupt the state machine', async () => {
+    const credentials = store()
+    credentials.current = OAUTH
+    const auth = new CodexAuthService(models(credentials, async () => OAUTH), credentials)
+    const seen: string[] = []
+    auth.setStateListener((state) => {
+      seen.push(state.phase)
+      if (state.phase === 'connected') throw new Error('listener exploded')
+    })
+
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: OAUTH.expires })
+    auth.noteRefreshFailure(new Error('invalid_grant'))
+    expect(seen).toEqual(['connected', 'reauth-required'])
+    await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+  })
 })

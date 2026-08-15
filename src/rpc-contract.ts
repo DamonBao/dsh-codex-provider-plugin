@@ -82,6 +82,7 @@ export function parseCodexAuthState(value: unknown): CodexAuthState | undefined 
       return typeof value.expiresAt === 'number' && Number.isFinite(value.expiresAt)
         ? { phase: 'connected', expiresAt: value.expiresAt }
         : undefined
+    case 'reauth-required': return { phase: 'reauth-required' }
     case 'failed':
       return isLoginMethod(value.method) && isFailureReason(value.reason)
         ? { phase: 'failed', method: value.method, reason: value.reason }

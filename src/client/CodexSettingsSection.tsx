@@ -41,6 +41,7 @@ export function isLoginActive(state: CodexAuthState): boolean {
     case 'awaiting-device': return true
     case 'connected':
     case 'disconnected':
+    case 'reauth-required':
     case 'failed': return false
     default: return assertNever(state)
   }
@@ -53,7 +54,8 @@ export function authDot(state: CodexAuthState): StateDotState {
     case 'starting':
     case 'awaiting-browser':
     case 'awaiting-device': return 'ongoing'
-    case 'failed': return 'error'
+    case 'failed':
+    case 'reauth-required': return 'error'
     case 'disconnected': return 'warning'
     default: return assertNever(state)
   }
@@ -67,6 +69,7 @@ export function authLabel(state: CodexAuthState): CodexSettingsKey {
     case 'awaiting-browser': return 'awaitingBrowser'
     case 'awaiting-device': return 'awaitingDevice'
     case 'failed': return 'failed'
+    case 'reauth-required': return 'reauthRequired'
     case 'disconnected': return 'disconnected'
     default: return assertNever(state)
   }
@@ -356,7 +359,9 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
                   disabled={!props.isLoopback || state.status === 'loading' || state.action !== null || active}
                   onClick={() => { setLoginOpen(true) }}
                 >
-                  {t(state.auth.phase === 'failed' ? 'retry' : 'connect')}
+                  {t(state.auth.phase === 'failed'
+                    ? 'retry'
+                    : state.auth.phase === 'reauth-required' ? 'reconnect' : 'connect')}
                 </Button>
               )}
         </div>
@@ -364,6 +369,9 @@ export function CodexSettingsSection(props: CodexSettingsSectionProps): ReactNod
         {!props.isLoopback ? <p className={css.error} role="status">{t('remoteHint')}</p> : null}
         {state.status === 'error' ? <p className={css.error} role="status">{t('loadFailed')}</p> : null}
         {state.actionFailed ? <p className={css.error} role="status">{t('actionFailed')}</p> : null}
+        {state.auth.phase === 'reauth-required'
+          ? <p className={css.error} role="status">{t('reauthRequiredDescription')}</p>
+          : null}
       </div>
 
       {state.auth.phase === 'connected'
