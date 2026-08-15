@@ -1,12 +1,20 @@
 /** Host dispatcher for the plugin-owned Connection RPC channel. */
 
 import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
-import type { CodexAuthState, CodexLoginMethod, CodexUsageSnapshot } from './types.ts'
+import type {
+  CodexAuthState,
+  CodexLoginMethod,
+  CodexNetworkState,
+  CodexProxyMode,
+  CodexUsageSnapshot,
+} from './types.ts'
 export { CODEX_AUTH_RPC_CHANNEL } from './rpc-contract.ts'
 
 /** Complete Host surface behind the browser-safe plugin channel. */
 export interface CodexRpcService {
   status(): Promise<CodexAuthState>
+  network(): Promise<CodexNetworkState>
+  setProxyMode(mode: CodexProxyMode): Promise<CodexNetworkState>
   usage(): Promise<CodexUsageSnapshot | null>
   login(method: CodexLoginMethod): CodexAuthState
   cancel(): Promise<CodexAuthState>
@@ -19,13 +27,26 @@ export async function handleCodexAuthRpc(
   endpoint: string,
   payload: unknown,
 ): Promise<RpcResult<unknown>> {
-  if (endpoint === 'status' || endpoint === 'usage' || endpoint === 'cancel' || endpoint === 'logout') {
+  if (endpoint === 'status' || endpoint === 'network' || endpoint === 'usage'
+    || endpoint === 'cancel' || endpoint === 'logout') {
     if (!isEmptyRecord(payload)) return badRequest(`${endpoint} expects an empty payload`)
     try {
       if (endpoint === 'status') return { ok: true, value: await service.status() }
+      if (endpoint === 'network') return { ok: true, value: await service.network() }
       if (endpoint === 'usage') return { ok: true, value: await service.usage() }
       if (endpoint === 'cancel') return { ok: true, value: await service.cancel() }
       return { ok: true, value: await service.logout() }
+    } catch {
+      return internalError()
+    }
+  }
+  if (endpoint === 'proxy-mode') {
+    if (!isRecord(payload) || !isProxyMode(payload.mode)
+      || Object.keys(payload).some(key => key !== 'mode')) {
+      return badRequest('proxy-mode expects { mode: "auto" | "environment" | "off" }')
+    }
+    try {
+      return { ok: true, value: await service.setProxyMode(payload.mode) }
     } catch {
       return internalError()
     }
@@ -51,7 +72,7 @@ function badRequest(message: string): RpcResult<never> {
 function internalError(): RpcResult<never> {
   return {
     ok: false,
-    error: { code: 'internal', message: 'Codex authentication operation failed', details: {} },
+    error: { code: 'internal', message: 'Codex provider operation failed', details: {} },
   }
 }
 
@@ -61,6 +82,10 @@ function isEmptyRecord(value: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isProxyMode(value: unknown): value is CodexProxyMode {
+  return value === 'auto' || value === 'environment' || value === 'off'
 }
 
 function isLoginMethod(value: unknown): value is CodexLoginMethod {

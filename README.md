@@ -99,6 +99,7 @@ Every field is optional:
     streamIdleTimeoutMs: 300000
     ipv6CallbackBridge: true
     proactiveRefresh: true
+    proxyMode: auto
 ```
 
 - `credentialRef`: reference used by the Harness credential provider for serialized OAuth state.
@@ -109,6 +110,18 @@ Every field is optional:
 - `retryPolicy`: standard Harness LLM retry configuration.
 - `ipv6CallbackBridge`: temporarily bridge `[::1]:1455` to pi-ai's `127.0.0.1:1455` listener during browser sign-in. Enabled by default; disable it when `PI_OAUTH_CALLBACK_HOST` is explicitly managed by the deployment. The IPv4 port-availability check remains active when only the bridge is disabled.
 - `proactiveRefresh`: refresh the access token in the background a few minutes before it expires, so the first request after expiry never pays the token round-trip. Enabled by default; disable it to fall back to purely lazy, request-driven refresh.
+- `proxyMode`: `auto` (default) reads `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`, then falls back to the macOS system proxy, Windows current-user proxy, Linux GNOME GSettings, or KDE `kioslaverc`; `environment` reads only environment variables; `off` installs no plugin proxy dispatcher.
+
+## Network and proxy routing
+
+- **HTTP(S) proxies:** the plugin automatically routes OpenAI/ChatGPT Host requests through a supported environment or system proxy. OAuth, token refresh, usage lookup, and SSE/WebSocket model calls share the same dispatcher. Proxy addresses and credentials never cross browser RPC.
+- **Linux:** detection order is environment → GNOME → KDE. Servers, containers, and other desktops should use the standard `HTTP(S)_PROXY` variables. Linux TUN needs no extra wiring.
+- **TUN mode:** TUN is transparent to Node and requires no proxy setup. The Settings UI therefore reports “System route (direct or TUN)” rather than guessing from unreliable interface names.
+- **Scope:** automatic routing intercepts only `openai.com` and `chatgpt.com`; every other Harness request stays on the previous dispatcher. A custom Host dispatcher is preserved and takes precedence. `localhost`, `127.0.0.1`, and `[::1]` always bypass the proxy.
+- **Limits:** the automatic dispatcher supports HTTP/HTTPS proxies; it does not execute PAC or connect directly to SOCKS. Enable the proxy application's HTTP port and set `HTTPS_PROXY`, or use TUN.
+- **Settings switch:** choose **Auto-detect**, **Environment proxy only**, or **Disable explicit proxy** on **Settings → OpenAI Codex**. Harness persists the choice under the `openai-codex` section of `$DSH_HOME/settings.yaml`, above the composition-level `proxyMode` default. After saving, the page explicitly asks you to restart `dsh web`; the running dispatcher is intentionally not hot-switched.
+
+Proxy configuration is read when the plugin starts. Restart `dsh web` after changing the environment or system proxy.
 
 ## Token refresh
 

@@ -17,13 +17,16 @@ import { resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import type { ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { CodexAuthService, codexAuthModels } from './auth-service.ts'
 import { startCodexIpv6CallbackBridge } from './callback-bridge.ts'
 import { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
+import { CodexNetworkManager } from './network.ts'
 import { codexDispatchProvider } from './provider.ts'
 import { CODEX_AUTH_RPC_CHANNEL, handleCodexAuthRpc } from './rpc.ts'
 import { CodexTokenRefresher } from './token-resolver.ts'
+import type { CodexNetworkState, CodexProxyMode } from './types.ts'
 import { CodexUsageService } from './usage-service.ts'
 
 export { CodexAuthService } from './auth-service.ts'
@@ -38,7 +41,7 @@ export { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
 /** Stable Cordis plugin name. */
 export const name = 'llm-openai-codex'
 /** Required Host services. Connection is optional so headless profiles still work. */
-export const inject = ['llm', 'credentials']
+export const inject = ['llm', 'credentials', 'settings']
 
 /** Default Harness credential reference holding serialized Codex OAuth state. */
 export const DEFAULT_CREDENTIAL_REF = 'OPENAI_CODEX_OAUTH'
@@ -55,13 +58,27 @@ export interface Config {
   retryPolicy?: RetryPolicyConfig
   ipv6CallbackBridge?: boolean
   proactiveRefresh?: boolean
+  proxyMode?: CodexProxyMode
 }
 
 const CodexTransportSchema = z.union(['sse', 'websocket', 'websocket-cached', 'auto'])
+const CodexProxyModeSchema = z.union(['auto', 'environment', 'off'])
 const StreamIdleTimeoutSchema = z.number()
   .min(Number.MIN_VALUE)
   .max(MAX_TIMER_DELAY_MS)
   .default(DEFAULT_STREAM_IDLE_TIMEOUT_MS)
+
+/** Persisted user setting for the next Host startup. */
+export interface CodexProviderSettings {
+  proxyMode: CodexProxyMode
+}
+
+/** Settings namespace written to `$DSH_HOME/settings.yaml`. */
+export const CODEX_SETTINGS_NAMESPACE = settingsNamespace('openai-codex')
+/** Restart-applied settings schema exposed to Harness configuration surfaces. */
+export const CodexProviderSettings: z<CodexProviderSettings> = z.object({
+  proxyMode: CodexProxyModeSchema.default('auto'),
+})
 
 /** Runtime schema for provider configuration. */
 export const Config: z<Config> = z.object({
@@ -73,6 +90,7 @@ export const Config: z<Config> = z.object({
   retryPolicy: RetryPolicySchema,
   ipv6CallbackBridge: z.boolean().default(true),
   proactiveRefresh: z.boolean().default(true),
+  proxyMode: CodexProxyModeSchema.default('auto'),
 })
 
 /** Fully resolved provider profile settings. */
@@ -85,6 +103,7 @@ export interface ResolvedConfig {
   retryPolicy: ResolvedRetryPolicy
   ipv6CallbackBridge: boolean
   proactiveRefresh: boolean
+  proxyMode: CodexProxyMode
 }
 
 /** Resolve defaults and timer bounds before registering the route. */
@@ -108,6 +127,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     retryPolicy: resolveRetryPolicy(config.retryPolicy, '@jcy2387/dsh-codex-provider-plugin: retryPolicy'),
     ipv6CallbackBridge: config.ipv6CallbackBridge ?? true,
     proactiveRefresh: config.proactiveRefresh ?? true,
+    proxyMode: config.proxyMode ?? 'auto',
   }
 }
 
@@ -128,6 +148,32 @@ export function assertCodexCatalog(provider: Provider): void {
 /** Register the provider, OAuth lifecycle, and optional loopback-only Web RPC. */
 export function apply(ctx: Context, config: Config): void {
   const resolved = resolveConfig(config)
+  const networkSettings = ctx.settings.register(
+    CODEX_SETTINGS_NAMESPACE,
+    CodexProviderSettings,
+    { base: { proxyMode: resolved.proxyMode }, applies: 'restart' },
+  )
+  const activeProxyMode = networkSettings.get().proxyMode
+  const network = new CodexNetworkManager(activeProxyMode)
+  const networkSnapshot = (): CodexNetworkState => {
+    const configuredProxyMode = networkSettings.get().proxyMode
+    return {
+      ...network.status(),
+      activeProxyMode,
+      configuredProxyMode,
+      restartRequired: configuredProxyMode !== activeProxyMode,
+    }
+  }
+  const networkState = networkSnapshot()
+  if (networkState.issue !== undefined) {
+    ctx.logger('dsh-codex-provider').warn(
+      `OpenAI Codex proxy auto-detection warning: ${networkState.issue}`,
+    )
+  }
+  ctx.effect(
+    () => () => network.dispose(),
+    '@jcy2387/dsh-codex-provider-plugin: restore network dispatcher',
+  )
   const credentials = new CodexCredentialStore(ctx.credentials, resolved.credentialRef)
   const piProvider = openaiCodexProvider()
   assertCodexCatalog(piProvider)
@@ -188,6 +234,11 @@ export function apply(ctx: Context, config: Config): void {
   const usage = new CodexUsageService(refresher, credentials)
   const rpcService = {
     status: () => auth.status(),
+    network: async () => networkSnapshot(),
+    setProxyMode: async (mode: CodexProxyMode) => {
+      await networkSettings.update({ proxyMode: mode })
+      return networkSnapshot()
+    },
     usage: async () => {
       try {
         return await usage.load()

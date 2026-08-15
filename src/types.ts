@@ -3,6 +3,33 @@
 /** Login method the UI may start. */
 export type CodexLoginMethod = 'browser' | 'device'
 
+/** Automatic proxy policy persisted through the Harness settings service. */
+export type CodexProxyMode = 'auto' | 'environment' | 'off'
+
+/** How Host HTTP requests currently reach OpenAI. TUN is transparent to Node. */
+export type CodexNetworkRoute =
+  | 'direct-or-tun'
+  | 'environment-proxy'
+  | 'host-dispatcher'
+  | 'system-proxy'
+
+/** Secret-free warning emitted when a detected proxy cannot be activated safely. */
+export type CodexNetworkIssue =
+  | 'proxy-initialization-failed'
+  | 'system-proxy-detection-failed'
+  | 'unsupported-proxy'
+
+/** Browser-safe network routing snapshot; proxy addresses and credentials are never included. */
+export interface CodexNetworkState {
+  route: CodexNetworkRoute
+  issue?: CodexNetworkIssue
+  /** Mode that configured the currently running dispatcher. */
+  activeProxyMode: CodexProxyMode
+  /** Persisted mode that will be used after the next Host restart. */
+  configuredProxyMode: CodexProxyMode
+  restartRequired: boolean
+}
+
 /** Stable, secret-free diagnosis for an unsuccessful Codex login. */
 export type CodexAuthFailureReason =
   | 'account-access'
