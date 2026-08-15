@@ -131,6 +131,10 @@ export function apply(ctx: Context, config: Config): void {
   const credentials = new CodexCredentialStore(ctx.credentials, resolved.credentialRef)
   const piProvider = openaiCodexProvider()
   assertCodexCatalog(piProvider)
+  const piOauth = piProvider.auth.oauth
+  if (piOauth === undefined) {
+    throw new Error('@jcy2387/dsh-codex-provider-plugin: Codex provider exposes no OAuth handler')
+  }
 
   const authModels = createModels({ credentials })
   authModels.setProvider(piProvider)
@@ -149,6 +153,8 @@ export function apply(ctx: Context, config: Config): void {
     },
   )
   const refresher = new CodexTokenRefresher(authModels, credentials, auth, {
+    // The same locked rotation pi-ai performs lazily, driven ahead of expiry.
+    refresh: credential => piOauth.refresh(credential),
     proactive: resolved.proactiveRefresh,
     onRefreshFailure: (error) => {
       ctx.logger('dsh-codex-provider').warn(

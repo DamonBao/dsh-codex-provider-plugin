@@ -1,8 +1,7 @@
 /** Proactive Codex OAuth refresh with terminal-failure surfacing. */
 
-import type { AuthResult, CredentialStore } from '@earendil-works/pi-ai'
+import type { AuthResult, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
-import { classifyCodexLoginFailure } from './auth-service.ts'
 import { CODEX_PROVIDER } from './credential-store.ts'
 import type { CodexAuthState } from './types.ts'
 import type { CodexUsageModels } from './usage-service.ts'
@@ -20,6 +19,8 @@ export interface CodexRefreshSink {
 
 /** Tunable proactive-refresh behavior. */
 export interface CodexTokenRefresherOptions {
+  /** pi-ai OAuth handler's token exchange; this refresher runs it under the store lock. */
+  refresh: (credential: OAuthCredential) => Promise<OAuthCredential>
   /** Refresh this long before expiry. */
   marginMs?: number
   /** Retry delays after transient refresh failures; the last delay repeats. */
@@ -30,20 +31,26 @@ export interface CodexTokenRefresherOptions {
   onRefreshFailure?: (error: unknown) => void
 }
 
-/** A dead refresh token requires sign-in; an unreachable network does not. */
+/**
+ * A dead refresh token requires sign-in; an unreachable network does not.
+ * Only failures carrying pi-ai's token-refresh markers qualify: a
+ * credential-store or transport error must never condemn the stored token.
+ */
 export function isTerminalRefreshError(error: unknown): boolean {
-  const reason = classifyCodexLoginFailure(error)
-  return reason === 'token-exchange' || reason === 'account-access'
+  const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase()
+  if (!message.includes('token refresh') && !message.includes('oauth refresh failed')) return false
+  return message.includes('invalid_grant') || /\b(?:401|403)\b/.test(message)
 }
 
 /**
- * Wrap pi-ai token resolution so every request-path and timer-path refresh
- * reports its outcome, and schedule proactive refreshes ahead of expiry.
- * Refresh rotation itself stays inside pi-ai's double-checked modify lock.
+ * Wrap pi-ai token resolution so every request-path refresh reports its
+ * outcome, and rotate the stored credential ahead of expiry by running the
+ * provider's `refresh` under the credential-store lock — the same pattern
+ * pi-ai uses, with a margin-aware check instead of an expiry check.
  */
 export class CodexTokenRefresher implements CodexUsageModels {
   private timer: ReturnType<typeof setTimeout> | undefined
-  private armedExpiresAt: number | undefined
+  private inFlight: Promise<void> | undefined
   private retryIndex = 0
   private refreshFailed = false
   private disposed = false
@@ -52,7 +59,7 @@ export class CodexTokenRefresher implements CodexUsageModels {
     private readonly models: CodexUsageModels,
     private readonly credentials: CredentialStore,
     private readonly sink: CodexRefreshSink,
-    private readonly options: CodexTokenRefresherOptions = {},
+    private readonly options: CodexTokenRefresherOptions,
   ) {}
 
   /** Resolve one fresh bearer token, surfacing terminal refresh failures. */
@@ -61,17 +68,17 @@ export class CodexTokenRefresher implements CodexUsageModels {
       const result = await this.models.getAuth(providerId)
       if (this.refreshFailed) {
         this.refreshFailed = false
-        const expires = await this.currentExpires()
-        if (expires !== undefined) this.sink.noteRefreshSuccess(expires)
+        try {
+          const expires = await this.readExpires()
+          if (expires !== undefined) this.sink.noteRefreshSuccess(expires)
+        } catch {
+          // The store read hiccuped; keep the flag so the next success retries.
+          this.refreshFailed = true
+        }
       }
       return result
     } catch (error) {
-      if (isTerminalRefreshError(error)) {
-        this.refreshFailed = true
-        this.stop()
-        this.options.onRefreshFailure?.(error)
-        this.sink.noteRefreshFailure(error)
-      }
+      this.handleRefreshFailure(error)
       throw error
     }
   }
@@ -79,7 +86,14 @@ export class CodexTokenRefresher implements CodexUsageModels {
   /** Arm the proactive timer from the currently stored credential, if any. */
   async start(): Promise<void> {
     if (this.disposed || !this.proactive) return
-    const expires = await this.currentExpires()
+    let expires: number | undefined
+    try {
+      expires = await this.readExpires()
+    } catch {
+      // A credential-store hiccup is transient; retry instead of going silent.
+      this.scheduleRetry()
+      return
+    }
     if (expires !== undefined) this.arm(expires)
   }
 
@@ -101,7 +115,6 @@ export class CodexTokenRefresher implements CodexUsageModels {
   /** Stop the proactive timer. */
   stop(): void {
     this.clearTimer()
-    this.armedExpiresAt = undefined
   }
 
   /** Stop all background work during plugin teardown. */
@@ -118,15 +131,26 @@ export class CodexTokenRefresher implements CodexUsageModels {
     return this.options.proactive ?? true
   }
 
-  /** Arm the proactive timer for one expiry instant; idempotent per expiry. */
+  private delayFor(expiresAt: number): number {
+    return Math.min(Math.max(expiresAt - this.margin - Date.now(), 0), MAX_TIMER_DELAY_MS)
+  }
+
+  /**
+   * Arm the timer for one expiry instant. A pending timer always re-evaluates
+   * the store when it fires, so external arming never overrides an existing
+   * schedule — least surprise for retry backoff and in-flight ticks.
+   */
   private arm(expiresAt: number): void {
+    if (this.disposed || !this.proactive || this.timer !== undefined || this.inFlight !== undefined) return
+    this.setTimer(this.delayFor(expiresAt))
+  }
+
+  /** Re-arm from within a tick, replacing the consumed (or stale) timer. */
+  private rearm(expiresAt: number): void {
     if (this.disposed || !this.proactive) return
-    if (this.timer !== undefined && this.armedExpiresAt === expiresAt) return
     this.clearTimer()
     this.retryIndex = 0
-    this.armedExpiresAt = expiresAt
-    const delay = Math.min(Math.max(expiresAt - this.margin - Date.now(), 0), MAX_TIMER_DELAY_MS)
-    this.setTimer(delay)
+    this.setTimer(this.delayFor(expiresAt))
   }
 
   private scheduleRetry(): void {
@@ -152,42 +176,73 @@ export class CodexTokenRefresher implements CodexUsageModels {
     this.timer = undefined
   }
 
-  private async tick(): Promise<void> {
-    this.timer = undefined
-    this.armedExpiresAt = undefined
+  /** Single-flight tick: concurrent fires share the running refresh. */
+  private tick(): Promise<void> {
+    this.inFlight ??= this.runTick()
+      .catch(() => undefined) // scheduling must never produce an unhandled rejection
+      .finally(() => { this.inFlight = undefined })
+    return this.inFlight
+  }
+
+  private async runTick(): Promise<void> {
+    this.clearTimer()
     if (this.disposed) return
-    let stored: Awaited<ReturnType<CredentialStore['read']>>
+    let storedExpires: number | undefined
     try {
-      stored = await this.credentials.read(CODEX_PROVIDER)
+      storedExpires = await this.readExpires()
     } catch {
       // A credential-store hiccup is transient; keep the schedule alive.
       this.scheduleRetry()
       return
     }
-    if (stored?.type !== 'oauth') return // logged out meanwhile; stop quietly
-    if (Date.now() < stored.expires - this.margin) {
+    if (storedExpires === undefined) return // logged out meanwhile; stop quietly
+    if (Date.now() < storedExpires - this.margin) {
       // Another path already rotated the credential; re-arm without a request.
-      this.arm(stored.expires)
+      this.rearm(storedExpires)
       return
     }
     try {
-      await this.getAuth(CODEX_PROVIDER)
-      this.retryIndex = 0
-      const expires = await this.currentExpires()
-      if (expires !== undefined) this.arm(expires)
+      const expires = await this.refreshStored()
+      if (expires === null) return // credential disappeared mid-refresh
+      this.rearm(expires)
     } catch (error) {
-      // Terminal failures already stopped the timer and notified the sink.
-      if (isTerminalRefreshError(error)) return
-      this.scheduleRetry()
+      this.handleRefreshFailure(error)
+      if (!isTerminalRefreshError(error)) this.scheduleRetry()
     }
   }
 
-  private async currentExpires(): Promise<number | undefined> {
-    try {
-      const stored = await this.credentials.read(CODEX_PROVIDER)
-      return stored?.type === 'oauth' ? stored.expires : undefined
-    } catch {
-      return undefined
-    }
+  /**
+   * Rotate the stored credential under the store lock once it enters the
+   * margin. Returns the post-refresh expiry, or null when no OAuth
+   * credential remains stored.
+   */
+  private async refreshStored(): Promise<number | null> {
+    let expires: number | null = null
+    await this.credentials.modify(CODEX_PROVIDER, async (current) => {
+      if (current?.type !== 'oauth') return undefined
+      expires = current.expires
+      if (Date.now() < current.expires - this.margin) return undefined // another path rotated first
+      const next = await this.options.refresh(current)
+      if (next.expires <= current.expires) {
+        throw new Error('OpenAI Codex token refresh did not advance the expiry')
+      }
+      expires = next.expires
+      return next
+    })
+    return expires
+  }
+
+  /** Terminal failures stop the timer and surface reauth; transient ones do neither. */
+  private handleRefreshFailure(error: unknown): void {
+    if (!isTerminalRefreshError(error)) return
+    this.refreshFailed = true
+    this.stop()
+    this.options.onRefreshFailure?.(error)
+    this.sink.noteRefreshFailure(error)
+  }
+
+  private async readExpires(): Promise<number | undefined> {
+    const stored = await this.credentials.read(CODEX_PROVIDER)
+    return stored?.type === 'oauth' ? stored.expires : undefined
   }
 }

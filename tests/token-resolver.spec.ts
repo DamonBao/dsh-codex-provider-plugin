@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AuthResult, Credential, CredentialStore } from '@earendil-works/pi-ai'
+import type { AuthResult, Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai'
 import { CODEX_PROVIDER } from '../src/credential-store.ts'
 import { CodexTokenRefresher, isTerminalRefreshError } from '../src/token-resolver.ts'
 import type { CodexRefreshSink, CodexTokenRefresherOptions } from '../src/token-resolver.ts'
@@ -11,12 +11,22 @@ function oauth(expires: number): Credential {
   return { type: 'oauth', access: 'access-token', refresh: 'refresh-token', expires }
 }
 
-type MutableStore = CredentialStore & { current: Credential | undefined }
+type MutableStore = CredentialStore & {
+  current: Credential | undefined
+  failReads: (error: unknown) => void
+  healReads: () => void
+}
 
 function store(): MutableStore {
+  let readError: unknown
   const value: MutableStore = {
     current: undefined,
-    read: async () => value.current,
+    failReads: (error) => { readError = error },
+    healReads: () => { readError = undefined },
+    read: async () => {
+      if (readError !== undefined) throw readError
+      return value.current
+    },
     list: async () => [],
     modify: async (_provider, fn) => {
       const next = await fn(value.current)
@@ -29,33 +39,55 @@ function store(): MutableStore {
 }
 
 const AUTH: AuthResult = { auth: { apiKey: 'fresh-access-token' }, source: 'OAuth' }
-const TERMINAL = new Error('OAuth refresh failed for openai-codex: token refresh error: invalid_grant')
-const TRANSIENT = new TypeError('fetch failed')
+const TERMINAL = new Error('OpenAI Codex token refresh failed (400): invalid_grant')
+const TRANSIENT = new Error('OpenAI Codex token refresh error: fetch failed')
+
+type RefreshFn = (credential: OAuthCredential) => Promise<OAuthCredential>
 
 interface Fixture {
   credentials: MutableStore
   getAuth: ReturnType<typeof vi.fn<(providerId: string) => Promise<AuthResult | undefined>>>
+  refresh: ReturnType<typeof vi.fn<RefreshFn>>
   sink: Record<keyof CodexRefreshSink, ReturnType<typeof vi.fn>>
   refresher: CodexTokenRefresher
 }
 
-function fixture(options?: CodexTokenRefresherOptions): Fixture {
+function fixture(options?: Partial<CodexTokenRefresherOptions>): Fixture {
   const credentials = store()
   const getAuth = vi.fn(async (): Promise<AuthResult | undefined> => AUTH)
+  const refresh = vi.fn<RefreshFn>(async (current) => ({
+    ...current,
+    access: 'rotated-access-token',
+    refresh: 'rotated-refresh-token',
+    expires: Date.now() + HOUR,
+  }))
   const sink = { noteRefreshSuccess: vi.fn(), noteRefreshFailure: vi.fn() }
   const models: CodexUsageModels = { getAuth }
-  const refresher = new CodexTokenRefresher(models, credentials, sink, options)
-  return { credentials, getAuth, sink, refresher }
+  const refresher = new CodexTokenRefresher(models, credentials, sink, { refresh, ...options })
+  return { credentials, getAuth, refresh, sink, refresher }
 }
 
 describe('isTerminalRefreshError', () => {
   it.each([
-    [TERMINAL, true],
-    [new Error('OpenAI Codex token refresh error (403): forbidden'), true],
-    [TRANSIENT, false],
-    [new Error('socket hangup'), false],
-  ])('classifies %s as terminal=%s', (error, terminal) => {
-    expect(isTerminalRefreshError(error)).toBe(terminal)
+    // pi-ai ModelsError-wrapped request-path failure.
+    ['OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (400): invalid_grant', true],
+    // Raw timer-path failures from the OAuth handler.
+    ['OpenAI Codex token refresh failed (400): invalid_grant', true],
+    ['OpenAI Codex token refresh failed (401): unauthorized', true],
+    ['OpenAI Codex token refresh failed (403): forbidden', true],
+    // Region rejection is terminal too: sign-in surfaces a region diagnostic,
+    // while silent retries would keep a dead session looking connected.
+    ['OpenAI Codex token refresh failed (403): unsupported_country_region_territory', true],
+    // Transient refresh-path failures.
+    ['OpenAI Codex token refresh error: fetch failed', false],
+    ['OpenAI Codex token refresh response missing fields: {}', false],
+    ['OpenAI Codex token refresh failed (500): internal server error', false],
+    // Failures outside the refresh path never condemn the stored token.
+    ['Credential store modify failed for openai-codex: 403 forbidden', false],
+    ['TypeError: fetch failed', false],
+    ['socket hangup', false],
+  ])('classifies %s as terminal=%s', (message, terminal) => {
+    expect(isTerminalRefreshError(new Error(message))).toBe(terminal)
   })
 })
 
@@ -70,11 +102,11 @@ describe('CodexTokenRefresher request path', () => {
   it('surfaces a terminal refresh failure and rethrows', async () => {
     const onRefreshFailure = vi.fn()
     const { getAuth, sink, refresher } = fixture({ onRefreshFailure })
-    getAuth.mockRejectedValue(TERMINAL)
+    getAuth.mockRejectedValue(new Error(`OAuth refresh failed for openai-codex: ${TERMINAL.message}`))
 
-    await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toBe(TERMINAL)
-    expect(sink.noteRefreshFailure).toHaveBeenCalledWith(TERMINAL)
-    expect(onRefreshFailure).toHaveBeenCalledWith(TERMINAL)
+    await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toThrow('invalid_grant')
+    expect(sink.noteRefreshFailure).toHaveBeenCalledTimes(1)
+    expect(onRefreshFailure).toHaveBeenCalledTimes(1)
     expect(sink.noteRefreshSuccess).not.toHaveBeenCalled()
   })
 
@@ -88,8 +120,8 @@ describe('CodexTokenRefresher request path', () => {
 
   it('recovers once a refresh succeeds after a terminal failure', async () => {
     const { credentials, getAuth, sink, refresher } = fixture()
-    getAuth.mockRejectedValueOnce(TERMINAL)
-    await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toBe(TERMINAL)
+    getAuth.mockRejectedValueOnce(new Error(`OAuth refresh failed for openai-codex: ${TERMINAL.message}`))
+    await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toThrow('invalid_grant')
 
     const rotated = Date.now() + HOUR
     credentials.current = oauth(rotated)
@@ -106,127 +138,204 @@ describe('CodexTokenRefresher proactive timer', () => {
   beforeEach(() => { vi.useFakeTimers() })
   afterEach(() => { vi.useRealTimers() })
 
-  it('refreshes ahead of expiry and re-arms from the rotated credential', async () => {
-    const { credentials, getAuth, refresher } = fixture({ marginMs: 5_000 })
+  it('force-refreshes under the store lock ahead of expiry and re-arms once', async () => {
+    const { credentials, getAuth, refresh, refresher } = fixture({ marginMs: 5_000 })
     credentials.current = oauth(Date.now() + 60_000)
-    getAuth.mockImplementation(async () => {
-      // Rotate like pi-ai would under the modify lock.
-      credentials.current = oauth(Date.now() + HOUR)
-      return AUTH
-    })
 
     await refresher.start()
     await vi.advanceTimersByTimeAsync(54_999)
-    expect(getAuth).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(1)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+
+    // Exactly one locked rotation per expiry window; the request path is untouched.
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(getAuth).not.toHaveBeenCalled()
+    const rotated = credentials.current
+    expect(rotated?.type === 'oauth' && rotated.expires > Date.now()).toBe(true)
 
     // Re-armed at rotated expiry minus margin, measured from the first tick.
     await vi.advanceTimersByTimeAsync(HOUR - 5_000 - 1)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
-    expect(getAuth).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(2)
+    refresher.dispose()
+  })
+
+  it('never busy-loops when a refresh does not advance the expiry', async () => {
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
+    credentials.current = oauth(Date.now() + 60_000)
+    // A pathological handler that keeps the same expiry must hit the backoff,
+    // not a 0ms re-arm loop.
+    refresh.mockImplementation(async current => current)
+
+    await refresher.start()
+    await vi.advanceTimersByTimeAsync(55_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    // Nothing until the first one-minute backoff elapses — no hot re-arm loop.
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(58_999)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(refresh).toHaveBeenCalledTimes(2)
     refresher.dispose()
   })
 
   it('skips the request when another path already rotated the credential', async () => {
-    const { credentials, getAuth, refresher } = fixture({ marginMs: 5_000 })
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
     credentials.current = oauth(Date.now() + 60_000)
 
     await refresher.start()
     // A request-path refresh rotates the credential before the timer fires.
     credentials.current = oauth(Date.now() + HOUR)
     await vi.advanceTimersByTimeAsync(55_000)
-    expect(getAuth).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
 
     // Re-armed against the rotated expiry: fires exactly at the new margin.
     await vi.advanceTimersByTimeAsync(HOUR - 60_000 - 1)
-    expect(getAuth).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(1)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
     refresher.dispose()
   })
 
   it('stops after a terminal failure on the timer path', async () => {
     const onRefreshFailure = vi.fn()
-    const { credentials, getAuth, sink, refresher } = fixture({ marginMs: 5_000, onRefreshFailure })
+    const { credentials, refresh, sink, refresher } = fixture({ marginMs: 5_000, onRefreshFailure })
     credentials.current = oauth(Date.now() + 60_000)
-    getAuth.mockRejectedValue(TERMINAL)
+    refresh.mockRejectedValue(TERMINAL)
 
     await refresher.start()
     await vi.advanceTimersByTimeAsync(55_000)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
     expect(sink.noteRefreshFailure).toHaveBeenCalledWith(TERMINAL)
     expect(onRefreshFailure).toHaveBeenCalledWith(TERMINAL)
 
     await vi.advanceTimersByTimeAsync(10 * HOUR)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
     refresher.dispose()
   })
 
   it('retries transient failures with capped backoff and recovers', async () => {
-    const { credentials, getAuth, sink, refresher } = fixture({ marginMs: 5_000 })
+    const { credentials, refresh, sink, refresher } = fixture({ marginMs: 5_000 })
     credentials.current = oauth(Date.now() + 60_000)
-    getAuth.mockRejectedValue(TRANSIENT)
+    refresh.mockRejectedValue(TRANSIENT)
 
     await refresher.start()
     await vi.advanceTimersByTimeAsync(55_000)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
     expect(sink.noteRefreshFailure).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(59_999)
-    expect(getAuth).toHaveBeenCalledTimes(1)
+    expect(refresh).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
-    expect(getAuth).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(2)
 
     // Second retry waits the capped five-minute delay.
     await vi.advanceTimersByTimeAsync(299_999)
-    expect(getAuth).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(1)
-    expect(getAuth).toHaveBeenCalledTimes(3)
+    expect(refresh).toHaveBeenCalledTimes(3)
 
     // Recovery re-arms from the rotated credential.
-    getAuth.mockImplementation(async () => {
-      credentials.current = oauth(Date.now() + HOUR)
-      return AUTH
-    })
+    refresh.mockImplementation(async current => ({
+      ...current,
+      expires: Date.now() + HOUR,
+    }))
     await vi.advanceTimersByTimeAsync(300_000)
-    expect(getAuth).toHaveBeenCalledTimes(4)
+    expect(refresh).toHaveBeenCalledTimes(4)
     expect(sink.noteRefreshFailure).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(HOUR - 5_000)
-    expect(getAuth).toHaveBeenCalledTimes(5)
+    expect(refresh).toHaveBeenCalledTimes(5)
+    refresher.dispose()
+  })
+
+  it('keeps the schedule alive across a credential-store read hiccup', async () => {
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
+    credentials.current = oauth(Date.now() + 60_000)
+
+    await refresher.start()
+    credentials.failReads(new Error('Harness credential backend unavailable'))
+    await vi.advanceTimersByTimeAsync(55_000)
+    expect(refresh).not.toHaveBeenCalled()
+
+    // The hiccup schedules a one-minute retry instead of killing the timer.
+    credentials.healReads()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(HOUR - 5_000)
+    expect(refresh).toHaveBeenCalledTimes(2)
+    refresher.dispose()
+  })
+
+  it('retries instead of going silent when the startup read fails', async () => {
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
+    credentials.current = oauth(Date.now() + 60_000)
+    credentials.failReads(new Error('Harness credential backend unavailable'))
+
+    await refresher.start()
+    credentials.healReads()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    refresher.dispose()
+  })
+
+  it('runs ticks single-flight while a refresh is in progress', async () => {
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
+    credentials.current = oauth(Date.now() + 60_000)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    refresh.mockImplementation(async current => {
+      await gate
+      return { ...current, expires: Date.now() + HOUR }
+    })
+
+    await refresher.start()
+    await vi.advanceTimersByTimeAsync(55_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    // A concurrent connected publish must not start a second overlapping tick.
+    refresher.observe({ phase: 'connected', expiresAt: Date.now() + 60_000 })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(HOUR)
+    expect(refresh).toHaveBeenCalledTimes(2)
     refresher.dispose()
   })
 
   it('does not arm when proactive refresh is disabled', async () => {
-    const { credentials, getAuth, refresher } = fixture({ proactive: false, marginMs: 5_000 })
+    const { credentials, refresh, refresher } = fixture({ proactive: false, marginMs: 5_000 })
     credentials.current = oauth(Date.now() + 60_000)
 
     await refresher.start()
     refresher.observe({ phase: 'connected', expiresAt: Date.now() + 60_000 })
     await vi.advanceTimersByTimeAsync(24 * HOUR)
-    expect(getAuth).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
     refresher.dispose()
   })
 
   it('stops the timer when auth state leaves connected', async () => {
-    const { credentials, getAuth, refresher } = fixture({ marginMs: 5_000 })
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
     credentials.current = oauth(Date.now() + 60_000)
 
     await refresher.start()
     refresher.observe({ phase: 'reauth-required' })
     await vi.advanceTimersByTimeAsync(HOUR)
-    expect(getAuth).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
     refresher.dispose()
   })
 
   it('stops ticking after dispose', async () => {
-    const { credentials, getAuth, refresher } = fixture({ marginMs: 5_000 })
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
     credentials.current = oauth(Date.now() + 60_000)
 
     await refresher.start()
     refresher.dispose()
     await vi.advanceTimersByTimeAsync(HOUR)
-    expect(getAuth).not.toHaveBeenCalled()
+    expect(refresh).not.toHaveBeenCalled()
   })
 })
