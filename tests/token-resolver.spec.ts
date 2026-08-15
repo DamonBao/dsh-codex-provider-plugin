@@ -73,6 +73,9 @@ describe('isTerminalRefreshError', () => {
     ['OAuth refresh failed for openai-codex: OpenAI Codex token refresh failed (400): invalid_grant', true],
     // Raw timer-path failures from the OAuth handler.
     ['OpenAI Codex token refresh failed (400): invalid_grant', true],
+    ['OpenAI Codex token refresh failed (400): invalid_refresh_token', true],
+    ['OpenAI Codex token refresh failed (400): refresh token expired', true],
+    ['OpenAI Codex token refresh failed (400): refresh token revoked', true],
     ['OpenAI Codex token refresh failed (401): unauthorized', true],
     ['OpenAI Codex token refresh failed (403): forbidden', true],
     // Region rejection is terminal too: sign-in surfaces a region diagnostic,
@@ -120,6 +123,7 @@ describe('CodexTokenRefresher request path', () => {
 
   it('recovers once a refresh succeeds after a terminal failure', async () => {
     const { credentials, getAuth, sink, refresher } = fixture()
+    credentials.current = oauth(Date.now() + 60_000)
     getAuth.mockRejectedValueOnce(new Error(`OAuth refresh failed for openai-codex: ${TERMINAL.message}`))
     await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toThrow('invalid_grant')
 
@@ -131,6 +135,24 @@ describe('CodexTokenRefresher request path', () => {
     // A steady-state success stays silent afterwards.
     await refresher.getAuth(CODEX_PROVIDER)
     expect(sink.noteRefreshSuccess).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not recover when getAuth merely returns the still-valid failed credential', async () => {
+    const { credentials, getAuth, sink, refresher } = fixture()
+    const live = Date.now() + 60_000
+    credentials.current = oauth(live)
+    getAuth.mockRejectedValueOnce(new Error(`OAuth refresh failed for openai-codex: ${TERMINAL.message}`))
+    await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toThrow('invalid_grant')
+
+    // pi-ai returns the unexpired token without refreshing: no rotation, no recovery.
+    await expect(refresher.getAuth(CODEX_PROVIDER)).resolves.toBe(AUTH)
+    expect(sink.noteRefreshSuccess).not.toHaveBeenCalled()
+
+    // A later success after the credential actually rotated does recover.
+    const rotated = live + HOUR
+    credentials.current = oauth(rotated)
+    await refresher.getAuth(CODEX_PROVIDER)
+    expect(sink.noteRefreshSuccess).toHaveBeenCalledWith(rotated)
   })
 })
 
@@ -304,6 +326,57 @@ describe('CodexTokenRefresher proactive timer', () => {
     await vi.advanceTimersByTimeAsync(0)
     await vi.advanceTimersByTimeAsync(HOUR)
     expect(refresh).toHaveBeenCalledTimes(2)
+    refresher.dispose()
+  })
+
+  it('recovers when an in-flight timer refresh disproves a terminal failure', async () => {
+    const { credentials, getAuth, refresh, sink, refresher } = fixture({ marginMs: 5_000 })
+    credentials.current = oauth(Date.now() + 60_000)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    refresh.mockImplementation(async current => {
+      await gate
+      return { ...current, expires: Date.now() + HOUR }
+    })
+
+    await refresher.start()
+    await vi.advanceTimersByTimeAsync(55_000)
+    expect(refresh).toHaveBeenCalledTimes(1) // tick parked inside the locked refresh
+
+    // A request-path terminal failure lands while the tick is still refreshing.
+    getAuth.mockRejectedValueOnce(new Error(`OAuth refresh failed for openai-codex: ${TERMINAL.message}`))
+    await expect(refresher.getAuth(CODEX_PROVIDER)).rejects.toThrow('invalid_grant')
+    expect(sink.noteRefreshFailure).toHaveBeenCalledTimes(1)
+
+    // The completed rotation is newer evidence than the failure and recovers.
+    release()
+    await vi.waitFor(() => { expect(sink.noteRefreshSuccess).toHaveBeenCalledTimes(1) })
+    const rotated = credentials.current
+    expect(rotated?.type === 'oauth' && rotated.expires > Date.now()).toBe(true)
+    refresher.dispose()
+  })
+
+  it('does not re-arm or retry when logout stops an in-flight tick', async () => {
+    const { credentials, refresh, refresher } = fixture({ marginMs: 5_000 })
+    credentials.current = oauth(Date.now() + 60_000)
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    refresh.mockImplementation(async () => {
+      await gate
+      throw TRANSIENT
+    })
+
+    await refresher.start()
+    await vi.advanceTimersByTimeAsync(55_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    // Logout mid-refresh: the late transient failure must schedule nothing.
+    credentials.current = undefined
+    refresher.observe({ phase: 'disconnected' })
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(24 * HOUR)
+    expect(refresh).toHaveBeenCalledTimes(1)
     refresher.dispose()
   })
 

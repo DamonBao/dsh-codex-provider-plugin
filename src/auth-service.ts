@@ -159,6 +159,10 @@ export class CodexAuthService {
     if (this.active !== undefined) return this.current
     const stored = await this.credentials.read(CODEX_PROVIDER)
     if (stored?.type === 'oauth') {
+      // A recent reconnect failure carries a far more useful diagnostic than
+      // the generic reauth state (for example an unsupported region); keep it
+      // visible while the dead-refresh flag sticks.
+      if (this.current.phase === 'failed') return this.current
       // A stored credential outranks nothing once refresh has terminally failed:
       // the refresh token is dead even though the credential file still exists.
       if (this.refreshFailed) return this.publish({ phase: 'reauth-required' })
@@ -179,7 +183,7 @@ export class CodexAuthService {
   noteRefreshSuccess(expiresAt: number): void {
     this.refreshFailed = false
     if (this.active !== undefined) return
-    if (this.current.phase === 'reauth-required') {
+    if (this.current.phase === 'reauth-required' || this.current.phase === 'failed') {
       this.publish({ phase: 'connected', expiresAt })
     }
   }
@@ -230,6 +234,8 @@ export class CodexAuthService {
     await this.stopActive('Codex login cancelled')
     const stored = await this.credentials.read(CODEX_PROVIDER)
     if (stored?.type !== 'oauth') return this.publish({ phase: 'disconnected' })
+    // Preserve a fresh reconnect diagnostic instead of hiding it behind reauth.
+    if (this.current.phase === 'failed') return this.current
     if (this.refreshFailed) return this.publish({ phase: 'reauth-required' })
     return this.publish({ phase: 'connected', expiresAt: stored.expires })
   }

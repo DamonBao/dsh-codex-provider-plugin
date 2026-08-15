@@ -35,24 +35,43 @@ export interface CodexTokenRefresherOptions {
  * A dead refresh token requires sign-in; an unreachable network does not.
  * Only failures carrying pi-ai's token-refresh markers qualify: a
  * credential-store or transport error must never condemn the stored token.
+ * Upstream does not guarantee `invalid_grant`, so explicit expiry and
+ * revocation rejections count as terminal too.
  */
 export function isTerminalRefreshError(error: unknown): boolean {
   const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase()
   if (!message.includes('token refresh') && !message.includes('oauth refresh failed')) return false
-  return message.includes('invalid_grant') || /\b(?:401|403)\b/.test(message)
+  return message.includes('invalid_grant')
+    || message.includes('invalid_refresh_token')
+    || message.includes('expired')
+    || message.includes('revoked')
+    || /\b(?:401|403)\b/.test(message)
 }
+
+/** Result of one locked rotation attempt. */
+type RefreshOutcome =
+  | { outcome: 'missing' }
+  | { outcome: 'skipped' | 'rotated'; expires: number }
 
 /**
  * Wrap pi-ai token resolution so every request-path refresh reports its
  * outcome, and rotate the stored credential ahead of expiry by running the
  * provider's `refresh` under the credential-store lock — the same pattern
  * pi-ai uses, with a margin-aware check instead of an expiry check.
+ *
+ * Success is never inferred from a resolved `getAuth` alone: pi-ai returns
+ * the still-valid token without refreshing, so recovery requires evidence
+ * that the credential which failed actually rotated.
  */
 export class CodexTokenRefresher implements CodexUsageModels {
   private timer: ReturnType<typeof setTimeout> | undefined
   private inFlight: Promise<void> | undefined
+  /** Invalidates an in-flight tick's scheduling decisions on stop/dispose. */
+  private generation = 0
   private retryIndex = 0
   private refreshFailed = false
+  /** Expiry of the credential whose refresh failed; recovery must differ from it. */
+  private failedExpires: number | undefined
   private disposed = false
 
   constructor(
@@ -66,41 +85,36 @@ export class CodexTokenRefresher implements CodexUsageModels {
   async getAuth(providerId: string): Promise<AuthResult | undefined> {
     try {
       const result = await this.models.getAuth(providerId)
-      if (this.refreshFailed) {
-        this.refreshFailed = false
-        try {
-          const expires = await this.readExpires()
-          if (expires !== undefined) this.sink.noteRefreshSuccess(expires)
-        } catch {
-          // The store read hiccuped; keep the flag so the next success retries.
-          this.refreshFailed = true
-        }
-      }
+      await this.noteSuccess()
       return result
     } catch (error) {
-      this.handleRefreshFailure(error)
+      if (isTerminalRefreshError(error)) {
+        let failedExpires: number | undefined
+        try {
+          failedExpires = await this.readExpires()
+        } catch {
+          // Keep the previous baseline when the store cannot be read.
+        }
+        this.handleRefreshFailure(error, failedExpires)
+      }
       throw error
     }
   }
 
   /** Arm the proactive timer from the currently stored credential, if any. */
-  async start(): Promise<void> {
-    if (this.disposed || !this.proactive) return
-    let expires: number | undefined
-    try {
-      expires = await this.readExpires()
-    } catch {
-      // A credential-store hiccup is transient; retry instead of going silent.
-      this.scheduleRetry()
-      return
-    }
-    if (expires !== undefined) this.arm(expires)
+  start(): Promise<void> {
+    return this.settle()
   }
 
   /** Re-arm or stop the proactive timer from externally published auth state. */
   observe(state: CodexAuthState): void {
     switch (state.phase) {
       case 'connected':
+        // A connected publish means the Host proved life (login, or a
+        // rotation this refresher reported), so any failure baseline kept
+        // here is obsolete.
+        this.refreshFailed = false
+        this.failedExpires = undefined
         this.arm(state.expiresAt)
         break
       case 'reauth-required':
@@ -112,14 +126,16 @@ export class CodexTokenRefresher implements CodexUsageModels {
     }
   }
 
-  /** Stop the proactive timer. */
+  /** Stop the proactive timer and invalidate an in-flight tick's scheduling. */
   stop(): void {
+    this.generation += 1
     this.clearTimer()
   }
 
   /** Stop all background work during plugin teardown. */
   dispose(): void {
     this.disposed = true
+    this.generation += 1
     this.clearTimer()
   }
 
@@ -129,6 +145,10 @@ export class CodexTokenRefresher implements CodexUsageModels {
 
   private get proactive(): boolean {
     return this.options.proactive ?? true
+  }
+
+  private isCurrent(generation: number): boolean {
+    return !this.disposed && this.generation === generation
   }
 
   private delayFor(expiresAt: number): number {
@@ -180,21 +200,44 @@ export class CodexTokenRefresher implements CodexUsageModels {
   private tick(): Promise<void> {
     this.inFlight ??= this.runTick()
       .catch(() => undefined) // scheduling must never produce an unhandled rejection
-      .finally(() => { this.inFlight = undefined })
+      .finally(() => {
+        this.inFlight = undefined
+        void this.settle()
+      })
     return this.inFlight
+  }
+
+  /**
+   * After an interrupted tick, settle the schedule from ground truth: a live
+   * credential re-arms, a missing credential stays quiet, a read hiccup
+   * retries, and a known-dead credential keeps the timer stopped.
+   */
+  private async settle(): Promise<void> {
+    if (this.disposed || !this.proactive || this.refreshFailed) return
+    if (this.timer !== undefined || this.inFlight !== undefined) return
+    let expires: number | undefined
+    try {
+      expires = await this.readExpires()
+    } catch {
+      this.scheduleRetry()
+      return
+    }
+    if (expires !== undefined) this.arm(expires)
   }
 
   private async runTick(): Promise<void> {
     this.clearTimer()
     if (this.disposed) return
+    const generation = this.generation
     let storedExpires: number | undefined
     try {
       storedExpires = await this.readExpires()
     } catch {
       // A credential-store hiccup is transient; keep the schedule alive.
-      this.scheduleRetry()
+      if (this.isCurrent(generation)) this.scheduleRetry()
       return
     }
+    if (!this.isCurrent(generation)) return
     if (storedExpires === undefined) return // logged out meanwhile; stop quietly
     if (Date.now() < storedExpires - this.margin) {
       // Another path already rotated the credential; re-arm without a request.
@@ -202,40 +245,70 @@ export class CodexTokenRefresher implements CodexUsageModels {
       return
     }
     try {
-      const expires = await this.refreshStored()
-      if (expires === null) return // credential disappeared mid-refresh
-      this.rearm(expires)
+      const outcome = await this.refreshStored()
+      // A completed rotation is ground truth and survives a concurrent
+      // stop(); only its scheduling consequences are invalidated.
+      if (outcome.outcome === 'missing') return
+      if (this.isCurrent(generation)) this.rearm(outcome.expires)
+      this.noteRotated(outcome.expires, outcome.outcome === 'rotated')
     } catch (error) {
-      this.handleRefreshFailure(error)
+      if (!this.isCurrent(generation)) return
+      this.handleRefreshFailure(error, storedExpires)
       if (!isTerminalRefreshError(error)) this.scheduleRetry()
     }
   }
 
   /**
    * Rotate the stored credential under the store lock once it enters the
-   * margin. Returns the post-refresh expiry, or null when no OAuth
-   * credential remains stored.
+   * margin. Reports whether a rotation actually happened so callers never
+   * mistake an untouched credential for a successful refresh.
    */
-  private async refreshStored(): Promise<number | null> {
-    let expires: number | null = null
+  private async refreshStored(): Promise<RefreshOutcome> {
+    let outcome: RefreshOutcome = { outcome: 'missing' }
     await this.credentials.modify(CODEX_PROVIDER, async (current) => {
       if (current?.type !== 'oauth') return undefined
-      expires = current.expires
+      outcome = { outcome: 'skipped', expires: current.expires }
       if (Date.now() < current.expires - this.margin) return undefined // another path rotated first
       const next = await this.options.refresh(current)
       if (next.expires <= current.expires) {
         throw new Error('OpenAI Codex token refresh did not advance the expiry')
       }
-      expires = next.expires
+      outcome = { outcome: 'rotated', expires: next.expires }
       return next
     })
-    return expires
+    return outcome
+  }
+
+  /** Recovery from a terminal failure requires evidence the failed credential rotated. */
+  private async noteSuccess(): Promise<void> {
+    if (!this.refreshFailed) return
+    let expires: number | undefined
+    try {
+      expires = await this.readExpires()
+    } catch {
+      return // keep the flag; the next success retries
+    }
+    if (expires === undefined) return // logged out meanwhile
+    this.noteRotated(expires, false)
+  }
+
+  /** A proven rotation clears any earlier terminal failure and notifies the sink. */
+  private noteRotated(expires: number, rotated: boolean): void {
+    if (!this.refreshFailed) return
+    if (!rotated) {
+      // The same expiry pi-ai already failed to refresh proves nothing.
+      if (this.failedExpires === undefined || expires === this.failedExpires) return
+    }
+    this.refreshFailed = false
+    this.failedExpires = undefined
+    this.sink.noteRefreshSuccess(expires)
   }
 
   /** Terminal failures stop the timer and surface reauth; transient ones do neither. */
-  private handleRefreshFailure(error: unknown): void {
+  private handleRefreshFailure(error: unknown, failedExpires?: number): void {
     if (!isTerminalRefreshError(error)) return
     this.refreshFailed = true
+    if (failedExpires !== undefined) this.failedExpires = failedExpires
     this.stop()
     this.options.onRefreshFailure?.(error)
     this.sink.noteRefreshFailure(error)

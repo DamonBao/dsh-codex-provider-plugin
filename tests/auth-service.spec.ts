@@ -224,15 +224,30 @@ describe('CodexAuthService', () => {
     await expect(auth.cancel()).resolves.toEqual({ phase: 'reauth-required' })
     await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
 
-    // A failed reconnect keeps the dead state instead of flipping to connected.
+    // A failed reconnect keeps its specific diagnostic instead of collapsing
+    // into the generic reauth state that hides it.
     auth.login('device')
     await vi.waitFor(async () => {
       await expect(auth.status()).resolves.toMatchObject({ phase: 'starting' })
     })
-    attempts[1]?.reject(new Error('OpenAI Codex token exchange failed (400): invalid_grant'))
+    attempts[1]?.reject(
+      new Error('OpenAI Codex token exchange failed (403): unsupported_country_region_territory'),
+    )
     await vi.waitFor(async () => {
-      await expect(auth.status()).resolves.toEqual({ phase: 'reauth-required' })
+      await expect(auth.status()).resolves.toEqual({
+        phase: 'failed', method: 'device', reason: 'unsupported-region',
+      })
     })
+    // The diagnostic sticks across polls instead of being overwritten.
+    await expect(auth.status()).resolves.toEqual({
+      phase: 'failed', method: 'device', reason: 'unsupported-region',
+    })
+
+    // A proven rotation recovers straight out of the failed state.
+    const rotated = OAUTH.expires + 3_600_000
+    credentials.current = { ...OAUTH, expires: rotated }
+    auth.noteRefreshSuccess(rotated)
+    await expect(auth.status()).resolves.toEqual({ phase: 'connected', expiresAt: rotated })
   })
 
   it('clears the dead-refresh flag after a successful login or logout', async () => {
