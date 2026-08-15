@@ -89,6 +89,8 @@ describe('CodexAuthService', () => {
     ['Failed to extract accountId from token', 'account-access'],
     ['OpenAI Codex token exchange failed (403): forbidden', 'account-access'],
     ['Missing authorization code', 'browser-callback'],
+    ['Codex browser callback cannot listen on 127.0.0.1:1455: EADDRINUSE', 'browser-callback-port'],
+    ['Codex browser callback timed out waiting for authorization', 'browser-callback-timeout'],
     ['OpenAI Codex token exchange failed (400): invalid_grant', 'token-exchange'],
     ['TypeError: fetch failed', 'network'],
     ['unexpected provider failure containing secret-response-text', 'unknown'],
@@ -124,10 +126,36 @@ describe('CodexAuthService', () => {
     auth.login('browser')
     await vi.waitFor(async () => {
       await expect(auth.status()).resolves.toEqual({
-        phase: 'failed', method: 'browser', reason: 'browser-callback',
+        phase: 'failed', method: 'browser', reason: 'browser-callback-port',
       })
     })
     expect(login).not.toHaveBeenCalled()
+  })
+
+  it('ends a browser flow that never returns to the Host', async () => {
+    const credentials = store()
+    const closeBridge = vi.fn(async () => {})
+    const reportFailure = vi.fn()
+    const auth = new CodexAuthService(
+      models(credentials, async (interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://auth.example/start' })
+        await interaction.prompt({ type: 'manual_code', message: 'wait' })
+        return OAUTH
+      }),
+      credentials,
+      async () => ({ close: closeBridge }),
+      reportFailure,
+      10,
+    )
+
+    auth.login('browser')
+    await vi.waitFor(async () => {
+      await expect(auth.status()).resolves.toEqual({
+        phase: 'failed', method: 'browser', reason: 'browser-callback-timeout',
+      })
+    })
+    expect(reportFailure).toHaveBeenCalledWith(expect.any(Error), 'browser')
+    expect(closeBridge).toHaveBeenCalledOnce()
   })
 
   it('drives the real pi-ai device-code branch without opening a browser callback', async () => {

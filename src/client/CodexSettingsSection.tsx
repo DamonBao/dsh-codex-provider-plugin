@@ -83,6 +83,8 @@ export function authFailureLabel(reason: CodexAuthFailureReason): CodexSettingsK
   switch (reason) {
     case 'account-access': return 'failureAccountAccess'
     case 'browser-callback': return 'failureBrowserCallback'
+    case 'browser-callback-port': return 'failureBrowserCallbackPort'
+    case 'browser-callback-timeout': return 'failureBrowserCallbackTimeout'
     case 'device-code-disabled': return 'failureDeviceCodeDisabled'
     case 'network': return 'failureNetwork'
     case 'token-exchange': return 'failureTokenExchange'

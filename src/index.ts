@@ -189,7 +189,7 @@ export function apply(ctx: Context, config: Config): void {
     credentials,
     () => startCodexIpv6CallbackBridge(
       undefined,
-      process.env.PI_OAUTH_CALLBACK_HOST,
+      undefined,
       resolved.ipv6CallbackBridge,
     ),
     (error, method) => {

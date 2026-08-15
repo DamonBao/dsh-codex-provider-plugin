@@ -214,6 +214,8 @@ function isNetworkIssue(value: unknown): value is CodexNetworkIssue {
 function isFailureReason(value: unknown): value is CodexAuthFailureReason {
   return value === 'account-access'
     || value === 'browser-callback'
+    || value === 'browser-callback-port'
+    || value === 'browser-callback-timeout'
     || value === 'device-code-disabled'
     || value === 'network'
     || value === 'token-exchange'

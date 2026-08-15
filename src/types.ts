@@ -34,6 +34,8 @@ export interface CodexNetworkState {
 export type CodexAuthFailureReason =
   | 'account-access'
   | 'browser-callback'
+  | 'browser-callback-port'
+  | 'browser-callback-timeout'
   | 'device-code-disabled'
   | 'network'
   | 'token-exchange'
