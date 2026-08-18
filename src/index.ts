@@ -228,6 +228,12 @@ export function apply(ctx: Context, config: Config): void {
     profiles: () => profiles,
     resolveApiKey: async () => (await refresher.getAuth(CODEX_PROVIDER))?.auth.apiKey,
     resolveAttachments: (): AttachmentStore | undefined => ctx.get('attachments'),
+    onReplayDegrade: ({ provider, model, reason }) => {
+      ctx.logger('dsh-codex-provider').warn(
+        `llm-openai-codex: unusable replay state on assistant history for route "${provider}/${model}";`
+        + ` sending that message as provider-neutral content (${reason})`,
+      )
+    },
   })
   ctx.llm.registerAdapter([CODEX_PROVIDER], adapter)
 
