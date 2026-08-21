@@ -60,6 +60,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The test resolver maps DSH package imports to the checked-out source.
+      # Give that sibling tree the workspace's direct test dependencies without
+      # installing the full DSH monorepo in every CI matrix job.
+      - name: Link DSH source test dependencies
+        run: ln -s "$GITHUB_WORKSPACE/packages/conversation-ui/node_modules" "$GITHUB_WORKSPACE/../deepseek-harness/node_modules"
+
       - name: Run checks
         run: pnpm run check
 
