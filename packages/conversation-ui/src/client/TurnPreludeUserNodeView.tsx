@@ -240,7 +240,10 @@ function TurnPreludeUserWithSession({
   const running = useSession(isRunning) as boolean
   const latestUser = useSession(snapshot => isLatestUser(snapshot, currentKey)) as boolean
   const address = turn === undefined ? undefined : { sessionId, turn: turn.turn }
-  const active = turn?.status === 'open' || (turn === undefined && running && latestUser)
+  // An open timeline turn can remain open briefly after the user pauses or
+  // interrupts the session. Gate the live clock on the session's authoritative
+  // running flag so the processed timer stops with the pause action.
+  const active = running && (turn?.status === 'open' || (turn === undefined && latestUser))
   const startTime = typeof turn?.start?.time === 'number' ? turn.start.time : nodeTime
   return (
     <>
