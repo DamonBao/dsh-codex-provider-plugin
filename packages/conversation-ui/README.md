@@ -5,7 +5,7 @@
 
 [English](README.en.md) | 简体中文
 
-DeepSeek Harness（DSH）的 Codex 风格对话界面增强插件：把 Web 对话重绘为一条有序事件流 —— 过程答复、思考、Tool 活动、重试、工作流与最终答复按发生顺序呈现，同时保持平滑的视口跟随。本包由原 `dsh-light-stream` 改名迁移而来，是 [DSH Codex Suite](../../README.zh.md) Monorepo 的对话 UI 包。
+DeepSeek Harness（DSH）的 Codex 风格对话界面增强插件：把 Web 对话重绘为一条有序事件流 —— 过程答复、思考、Tool 活动、重试、工作流与最终答复按发生顺序呈现，同时保持平滑的视口跟随。本包是 [DSH Codex Suite](../../README.zh.md) Monorepo 的对话 UI 包。
 
 **本包与 Codex Provider 完全独立**，可以单独安装并服务任意模型。
 

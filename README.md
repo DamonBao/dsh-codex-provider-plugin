@@ -17,7 +17,7 @@ The repository is a pnpm monorepo containing two independent runtime plugins and
 | [`@jcy2387/dsh-conversation-ui`](packages/conversation-ui) | Runtime plugin | Re-renders the Web chat as a Codex-style event stream: turn folding, semantic tool activity, streaming reveal, deliverables, and smooth viewport follow. |
 | [`@jcy2387/dsh-suite`](packages/all) | Pure bundle | No runtime code — a single profile patch that installs both plugins at once. |
 
-The two plugins are fully decoupled: the Conversation UI works with any model, and the Codex Provider works with the stock chat UI. `@jcy2387/dsh-conversation-ui` is the renamed migration of the former `dsh-light-stream` package.
+The two plugins are fully decoupled: the Conversation UI works with any model, and the Codex Provider works with the stock chat UI.
 
 ---
 

@@ -5,7 +5,7 @@
 
 English | [简体中文](README.md)
 
-A Codex-style conversation UI enhancement plugin for DeepSeek Harness (DSH): the Web chat is re-rendered as one ordered event stream — process updates, thinking, tool activity, retries, workflows, and the final answer appear in the order they happened, while viewport follow stays smooth. This package is the renamed migration of the former `dsh-light-stream`, and is the Conversation UI package of the [DSH Codex Suite](../../README.md) monorepo.
+A Codex-style conversation UI enhancement plugin for DeepSeek Harness (DSH): the Web chat is re-rendered as one ordered event stream — process updates, thinking, tool activity, retries, workflows, and the final answer appear in the order they happened, while viewport follow stays smooth. This package is the Conversation UI package of the [DSH Codex Suite](../../README.md) monorepo.
 
 **The package is fully independent from the Codex Provider** and can be installed alone to enhance conversations with any model.
 

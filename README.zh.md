@@ -17,7 +17,7 @@
 | [`@jcy2387/dsh-conversation-ui`](packages/conversation-ui) | 运行时插件 | 将 Web 对话重绘为 Codex 风格事件流：Turn 折叠、语义化 Tool 活动、流式揭示、产物卡片和平滑视口跟随。 |
 | [`@jcy2387/dsh-suite`](packages/all) | 纯组合包 | 不含运行时代码，仅通过一个 profile patch 一次装齐两个插件。 |
 
-两个插件完全解耦：Conversation UI 可服务任意模型，Codex Provider 也可搭配原生对话界面使用。`@jcy2387/dsh-conversation-ui` 由原 `dsh-light-stream` 改名迁移而来。
+两个插件完全解耦：Conversation UI 可服务任意模型，Codex Provider 也可搭配原生对话界面使用。
 
 ---
 
