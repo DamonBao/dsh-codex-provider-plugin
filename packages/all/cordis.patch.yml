@@ -1,6 +1,19 @@
 # Install both independent plugins as one Suite bundle.
+#
+# Keep the children inside a nested loader group. A profile may already contain
+# one of the child bundles (for example after a user first installed the
+# Provider directly); root-level inserts would then produce duplicate loader
+# IDs. The disabled expressions detect an existing direct child row and let the
+# direct bundle own it, while the Suite-owned child runs when no direct row is
+# present.
 - insert:
-    - id: codex-provider
-      name: '@jcy2387/dsh-codex-provider'
-    - id: conversation-ui
-      name: '@jcy2387/dsh-conversation-ui'
+    - id: suite-plugins
+      name: cordis:group
+      group: true
+      config:
+        - id: codex-provider
+          name: '@jcy2387/dsh-codex-provider'
+          disabled: !!js ctx.loader.store['codex-provider'] !== undefined
+        - id: conversation-ui
+          name: '@jcy2387/dsh-conversation-ui'
+          disabled: !!js ctx.loader.store['conversation-ui'] !== undefined
