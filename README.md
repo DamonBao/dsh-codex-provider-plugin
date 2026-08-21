@@ -95,7 +95,7 @@ Every field is optional:
 - id: llm-openai-codex
   config:
     credentialRef: OPENAI_CODEX_OAUTH
-    transport: auto
+    transport: sse
     streamIdleTimeoutMs: 300000
     ipv6CallbackBridge: true
     proactiveRefresh: true
@@ -103,7 +103,7 @@ Every field is optional:
 ```
 
 - `credentialRef`: reference used by the Harness credential provider for serialized OAuth state.
-- `transport`: `sse`, `websocket`, `websocket-cached`, or `auto`.
+- `transport`: `sse` (default), `websocket`, `websocket-cached`, or `auto`. SSE is the reliability-first default: upstream `auto` can fall back when WebSocket fails before streaming begins, but it cannot safely replay a request after partial output has arrived. Select `auto` or a WebSocket mode explicitly when connection reuse is preferred and the network path is known to be stable.
 - `timeoutMs`: provider request timeout.
 - `websocketConnectTimeoutMs`: WebSocket connection timeout.
 - `streamIdleTimeoutMs`: maximum idle interval while waiting for the next stream chunk.

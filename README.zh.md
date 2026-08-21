@@ -95,7 +95,7 @@ pnpm dsh web
 - id: llm-openai-codex
   config:
     credentialRef: OPENAI_CODEX_OAUTH
-    transport: auto
+    transport: sse
     streamIdleTimeoutMs: 300000
     ipv6CallbackBridge: true
     proactiveRefresh: true
@@ -103,7 +103,7 @@ pnpm dsh web
 ```
 
 - `credentialRef`：Harness credential provider 中保存序列化 OAuth 状态的引用。
-- `transport`：`sse`、`websocket`、`websocket-cached` 或 `auto`。
+- `transport`：`sse`（默认）、`websocket`、`websocket-cached` 或 `auto`。SSE 是可靠性优先的默认值：上游 `auto` 能在 WebSocket 尚未开始输出时回退，但收到部分输出后不能安全重放请求。若更看重连接复用且已确认网络链路稳定，可显式选择 `auto` 或 WebSocket 模式。
 - `timeoutMs`：Provider 请求超时。
 - `websocketConnectTimeoutMs`：WebSocket 建连超时。
 - `streamIdleTimeoutMs`：等待下一段流数据的最大空闲时间。

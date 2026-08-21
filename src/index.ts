@@ -45,6 +45,12 @@ export const inject = ['llm', 'credentials', 'settings']
 
 /** Default Harness credential reference holding serialized Codex OAuth state. */
 export const DEFAULT_CREDENTIAL_REF = 'OPENAI_CODEX_OAUTH'
+/**
+ * Reliability-first default transport. Upstream `auto` falls back to SSE only
+ * before WebSocket stream events begin; a later WebSocket failure must remain
+ * terminal because replaying the request could duplicate partial output.
+ */
+export const DEFAULT_CODEX_TRANSPORT: Transport = 'sse'
 /** Default maximum idle interval while reading one Codex response stream. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
 
@@ -83,7 +89,7 @@ export const CodexProviderSettings: z<CodexProviderSettings> = z.object({
 /** Runtime schema for provider configuration. */
 export const Config: z<Config> = z.object({
   credentialRef: z.string().role('credential-ref').default(DEFAULT_CREDENTIAL_REF),
-  transport: CodexTransportSchema,
+  transport: CodexTransportSchema.default(DEFAULT_CODEX_TRANSPORT),
   timeoutMs: z.natural(),
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: StreamIdleTimeoutSchema,
@@ -96,7 +102,7 @@ export const Config: z<Config> = z.object({
 /** Fully resolved provider profile settings. */
 export interface ResolvedConfig {
   credentialRef: CredentialRef
-  transport?: Transport
+  transport: Transport
   timeoutMs?: number
   websocketConnectTimeoutMs?: number
   streamIdleTimeoutMs: number
@@ -118,7 +124,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
   }
   return {
     credentialRef: credentialRef(config.credentialRef ?? DEFAULT_CREDENTIAL_REF),
-    ...config.transport === undefined ? {} : { transport: config.transport },
+    transport: config.transport ?? DEFAULT_CODEX_TRANSPORT,
     ...config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs },
     ...config.websocketConnectTimeoutMs === undefined
       ? {}
@@ -217,7 +223,7 @@ export function apply(ctx: Context, config: Config): void {
     configuredMaxTokens: new Map(),
     streamIdleTimeoutMs: resolved.streamIdleTimeoutMs,
     retryPolicy: resolved.retryPolicy,
-    ...resolved.transport === undefined ? {} : { transport: resolved.transport },
+    transport: resolved.transport,
     ...resolved.timeoutMs === undefined ? {} : { timeoutMs: resolved.timeoutMs },
     ...resolved.websocketConnectTimeoutMs === undefined
       ? {}
