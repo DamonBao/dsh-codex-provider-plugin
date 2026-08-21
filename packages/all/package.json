@@ -1,0 +1,46 @@
+{
+  "name": "@jcy2387/dsh-suite",
+  "displayName": "DSH Codex Suite",
+  "description": "A pure bundle package that installs the Codex provider and Conversation UI plugins together for DeepSeek Harness.",
+  "version": "0.1.0-rc.11",
+  "author": "jcy2387",
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DamonBao/dsh-codex-suite.git"
+  },
+  "homepage": "https://github.com/DamonBao/dsh-codex-suite#readme",
+  "bugs": {
+    "url": "https://github.com/DamonBao/dsh-codex-suite/issues"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh-bundle",
+    "codex",
+    "conversation-ui"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@jcy2387/dsh-codex-provider": "workspace:*",
+    "@jcy2387/dsh-conversation-ui": "workspace:*"
+  }
+}

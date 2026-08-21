@@ -1,0 +1,10 @@
+# Applied when this package appears in a profile's dsh.profile.bundles list.
+- insert:
+    - id: conversation-ui
+      name: '@jcy2387/dsh-conversation-ui'
+      config:
+        mode: teleprompter
+        preset: balanced
+        revealCharsPerSec: 80
+        scrollSpeedPxPerSec: 48
+        maxScrollSpeedPxPerSec: 1000

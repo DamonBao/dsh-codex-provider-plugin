@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 import { clientBundle } from './build/client-bundle.ts'
 
-const packageName = '@jcy2387/dsh-codex-provider-plugin'
+const packageName = '@jcy2387/dsh-codex-provider'
 
 /** Build the Host and browser faces directly from source. */
 export default defineConfig([

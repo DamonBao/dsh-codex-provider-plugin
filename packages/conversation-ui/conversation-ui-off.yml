@@ -1,0 +1,3 @@
+# Optional profile overlay: disable the Conversation UI plugin without removing it.
+- id: conversation-ui
+  disabled: true

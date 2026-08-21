@@ -1,0 +1,1260 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 16px;
+  line-height: 28px;
+  animation: dsh-codex-stream-enter 140ms ease-out both;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.markdownFlow {
+  min-width: 0;
+}
+
+/* Final-answer code blocks keep their source lines intact and scroll
+ * horizontally instead of breaking paths/commands at arbitrary characters.
+ * The bounded viewport prevents a long log from pushing the answer away. */
+.root .markdownFlow :global(pre) {
+  max-height: min(60vh, 480px);
+  overflow: auto;
+  overflow-wrap: normal;
+  white-space: pre;
+  word-break: normal;
+  tab-size: 2;
+}
+
+.root .markdownFlow :global(pre) :global(code) {
+  white-space: inherit;
+  word-break: inherit;
+}
+
+/* MarkdownText owns spacing within one assistant text block. Its default
+ * adjacent 16px margins collapse, which leaves a paragraph visually attached
+ * to the final row of a long path list. Keep this boundary at one readable
+ * text-line rhythm without changing list nesting or other block pairs. */
+.markdownFlow > div > :where(ul, ol) + p {
+  margin-block-start: 24px;
+}
+
+/* Codex keeps progress prose and the final answer in one calm document flow.
+ * Phase attributes preserve their different semantics without adding chat
+ * bubbles or labels that would compete with the answer itself. */
+.root[data-stream-phase='streaming'],
+.root[data-stream-phase='process'] {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* Progress prose is not the final answer: keep its Markdown root at the same
+ * size as ordinary assistant text, while emphasis does not make a status
+ * sentence look heavier than the surrounding streamed text. */
+.root[data-stream-phase='streaming'] .markdownFlow > :global(div),
+.root[data-stream-phase='process'] .markdownFlow > :global(div) {
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 28px;
+}
+
+.root[data-stream-phase='streaming'] .markdownFlow :global(strong),
+.root[data-stream-phase='process'] .markdownFlow :global(strong) {
+  /* MarkdownText's own `.markdown strong` rule is equally specific and can
+   * win when its stylesheet is injected after this module. Think/process
+   * emphasis is intentionally quiet, so make that contract order-independent. */
+  font-weight: 400 !important;
+}
+
+.root[data-stream-phase='final'] {
+  margin-block-start: 2px;
+}
+
+.turnFoldRow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-block: 0 14px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.turnPrelude {
+  margin-block-start: 16px;
+}
+
+.turnWaiting {
+  width: fit-content;
+  margin-block-start: 0;
+  background: linear-gradient(
+    105deg,
+    var(--dsw-alias-label-tertiary) 15%,
+    var(--dsw-alias-label-primary) 42%,
+    var(--dsw-alias-label-tertiary) 68%
+  );
+  background-clip: text;
+  background-size: 220% 100%;
+  color: transparent;
+  font-size: 14px;
+  line-height: 24px;
+  animation: dsh-turn-waiting-shimmer 1.8s linear infinite;
+}
+
+@keyframes dsh-turn-waiting-shimmer {
+  from { background-position: 130% 0; }
+  to { background-position: -90% 0; }
+}
+
+/* Light Stream owns the immediate Turn status. The native direct-child
+ * placeholder would otherwise duplicate the waiting signal at the flow tip. */
+:global([data-chat-flow] > [role='status']) {
+  display: none !important;
+}
+
+.turnFoldRow::after {
+  width: 100%;
+  height: 1px;
+  flex: none;
+  background: var(--dsw-alias-border-l2);
+  content: '';
+}
+
+.turnFoldButton,
+.turnFoldLabel {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  flex: none;
+}
+
+.turnFoldButton {
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.turnFoldButton:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.turnFoldButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l3);
+  outline-offset: 3px;
+}
+
+.turnFoldButton > svg {
+  flex: none;
+}
+
+/* Author-level display rules on Assistant and Tool rows override the browser's
+ * built-in `[hidden]` stylesheet. Keep every registered process member truly
+ * out of layout while its Turn is collapsed. */
+[data-turn-process][hidden] {
+  display: none !important;
+}
+
+/* ChatView keeps each flat node in its own flow row. Hiding only the inner
+ * process member would leave the parent row-gap behind, producing a large
+ * blank band. Preserve the boundary row and the mixed final-answer row, but
+ * remove every other collapsed process anchor from layout. */
+:global([data-chat-anchor-key]:has([data-turn-process][hidden]):not(:has([data-turn-fold-row])):not(:has([data-stream-phase='final'])):not(:has([data-stream-tool-group-frame]))) {
+  display: none !important;
+}
+
+/* Portaled members live inside the first row's group frame. Remove their empty
+ * original Chat anchors so the host row-gap cannot leave phantom bands. */
+:global([data-chat-anchor-key]:has([data-tool-group-proxy])) {
+  display: none !important;
+}
+
+/* A collapsed Turn still removes the group host itself; a collapsed activity
+ * group keeps its heading and only removes the command rows below it. */
+:global([data-chat-anchor-key]:has([data-stream-tool-group-anchor][hidden])) {
+  display: none !important;
+}
+
+.root[data-stream-phase='interrupted'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Every non-human Chat Node becomes one compact event row. Tool renderers
+ * keep their own icons, titles, summaries, and disclosure bodies; this layer
+ * only supplies the shared Codex timeline rhythm and entry transition. */
+.eventRow {
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 24px;
+  animation: dsh-codex-stream-enter 140ms ease-out both;
+}
+
+.eventRow[data-stream-node='tool-call'],
+.eventRow[data-stream-node='workflow-run'],
+.eventRow[data-stream-node='model-retry'],
+.eventRow[data-stream-node='compaction'],
+.eventRow[data-stream-node='manual-compaction'] {
+  margin-block: 2px;
+}
+
+.eventRow[data-stream-state='running'] {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Context compaction is a status marker, not a second disclosure surface.
+ * Keep the native icon/title/summary but remove the meaningless chevron and
+ * let the wrapper's click capture keep the row non-expandable. */
+.eventRow[data-stream-node='compaction'] [data-compaction-disclosure],
+.eventRow[data-stream-node='manual-compaction'] [data-compaction-disclosure] {
+  display: none !important;
+}
+
+.eventRow[data-stream-node='compaction'] :global(button:has([data-compaction-icon])),
+.eventRow[data-stream-node='manual-compaction'] :global(button:has([data-compaction-icon])) {
+  cursor: default;
+}
+
+.eventRow[data-stream-node='compaction'] :global(button:has([data-compaction-icon])):hover,
+.eventRow[data-stream-node='compaction'] :global(button:has([data-compaction-icon])):focus-visible,
+.eventRow[data-stream-node='manual-compaction'] :global(button:has([data-compaction-icon])):hover,
+.eventRow[data-stream-node='manual-compaction'] :global(button:has([data-compaction-icon])):focus-visible {
+  background: transparent !important;
+}
+
+.eventRow[data-stream-node='compaction'] [data-compaction-icon],
+.eventRow[data-stream-node='manual-compaction'] [data-compaction-icon] {
+  color: var(--dsw-alias-label-secondary) !important;
+  opacity: 1 !important;
+}
+
+.eventRow[data-stream-node='compaction'] :global(button:has([data-compaction-icon])),
+.eventRow[data-stream-node='manual-compaction'] :global(button:has([data-compaction-icon])) {
+  color: var(--dsw-alias-label-secondary) !important;
+}
+
+.eventRow[data-stream-node='compaction'] :global(button:has([data-compaction-icon])) > span,
+.eventRow[data-stream-node='manual-compaction'] :global(button:has([data-compaction-icon])) > span {
+  color: var(--dsw-alias-label-secondary) !important;
+}
+
+/* The native compaction node can be mounted outside the overlay wrapper in
+ * paged/history surfaces. Match its unique data marker directly as well, so
+ * its title and summary use the same tone as the context-injection row. */
+:global(button:has([data-compaction-icon])),
+:global(button:has([data-compaction-icon])) > span {
+  color: var(--dsw-alias-label-secondary) !important;
+  opacity: 1 !important;
+}
+
+/* Consecutive same-kind tools are mounted into one shared activity frame. The
+ * frame owns one heading and one disclosure affordance; its members retain the
+ * native Harness Tool rows so command/file details remain independently useful. */
+.toolGroupAnchor {
+  min-width: 0;
+}
+
+.toolGroupFrame {
+  min-width: 0;
+  margin-block: 2px 8px;
+  overflow: hidden;
+  background: transparent;
+}
+
+.toolGroupHeader {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 22px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  line-height: 24px;
+  text-align: start;
+}
+
+.toolGroupHeader:hover {
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+}
+
+.toolGroupHeader:focus-visible {
+  outline: none;
+  background: transparent;
+}
+
+.toolGroupHeaderIcon {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 0;
+  display: inline-flex;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.toolGroupHeaderGlyph {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+
+.toolGroupHeaderLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolGroupHeaderChevron {
+  display: inline-flex;
+  margin-inline-start: 0;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.editStats {
+  flex: none;
+  margin-inline-start: 4px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+
+.toolGroupFrame > .eventRow[data-stream-tool-group-member],
+.toolGroupFrame > [data-tool-group-member] > .eventRow[data-stream-tool-group-member] {
+  margin-block: 0;
+  padding-inline: 8px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.toolGroupFrame .toolSemanticIcon,
+.toolGroupFrame .streamSemanticIcon {
+  /* An expanded Bash row grows with its terminal output. Keep the semantic
+   * glyph anchored to the row header instead of centering it in the whole
+   * expanded card. */
+  inset-block-start: 4px;
+  transform: none;
+}
+
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > .eventRow[data-stream-tool-group-member] > :global([data-chat-call-id]),
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > .eventRow[data-stream-tool-group-member] > * > :global([data-sample='bash']),
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > [data-tool-group-member] > .eventRow[data-stream-tool-group-member] > :global([data-chat-call-id]),
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > [data-tool-group-member] > .eventRow[data-stream-tool-group-member] > * > :global([data-sample='bash']) {
+  display: none !important;
+}
+
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > .eventRow[data-stream-tool-group-member] > .toolSemanticIcon,
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > [data-tool-group-member] > .eventRow[data-stream-tool-group-member] > .toolSemanticIcon {
+  display: none;
+}
+
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > .eventRow[data-stream-tool-group-member] > :not(.toolSemanticIcon):not(.streamSemanticIcon),
+.toolGroupFrame[data-stream-tool-group-collapsed]
+  > [data-tool-group-member] > .eventRow[data-stream-tool-group-member] > :not(.toolSemanticIcon):not(.streamSemanticIcon) {
+  display: none !important;
+}
+
+.eventRow :global([data-disclosure-row]) {
+  min-width: 0;
+}
+
+/* Codex-style Tool chrome: the semantic glyph is a stable leading landmark;
+ * disclosure state is a separate trailing affordance. The Harness ToolRow
+ * still owns click/keyboard state and the expanded body—we only rearrange its
+ * existing header geometry inside the root call. */
+.eventRow[data-stream-tool-row] {
+  position: relative;
+}
+
+/* A Tool remains the visible activity handoff after its result arrives and
+ * until the Agent publishes the next row. Sweep only the root header so an
+ * expanded result card is never washed by the progress treatment. */
+.eventRow[data-stream-tool-row][data-stream-progress='active']
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row]),
+.eventRow[data-stream-tool-row][data-stream-progress='active']
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash']) {
+  position: relative;
+  overflow: hidden;
+}
+
+.eventRow[data-stream-tool-row][data-stream-progress='active']
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])::after,
+.eventRow[data-stream-tool-row][data-stream-progress='active']
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])::after {
+  position: absolute;
+  inset-block: 0;
+  left: -300px;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-conversation-ui-think-sweep 2.6s ease-out infinite;
+  content: '';
+  pointer-events: none;
+}
+
+.toolSemanticIcon,
+.streamSemanticIcon {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 4px;
+  inset-inline-start: 0;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+  pointer-events: none;
+}
+
+/* Harness-native rows (context injection, compaction, retry, and future
+ * disclosure-backed nodes) keep their semantic glyph leading while the
+ * disclosure affordance is always the final flex item. The core DisclosureRow
+ * swaps its leading icon for a chevron when open; an owned semantic overlay
+ * keeps context rows stable in both states. */
+.eventRow[data-stream-semantic-icon-owned] {
+  position: relative;
+}
+
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child {
+  display: contents;
+}
+
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child
+  > :first-child:not(:last-child) {
+  opacity: 1;
+}
+
+.eventRow[data-stream-semantic-icon-owned]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded] {
+  padding-inline-start: 22px;
+}
+
+.eventRow[data-stream-semantic-icon-owned]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child
+  > :first-child:not(:last-child) {
+  display: none;
+}
+
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child
+  > svg {
+  position: static;
+  order: 4;
+  flex: none;
+  margin: 0 0 0 6px;
+  opacity: 0;
+  color: var(--dsw-alias-label-secondary);
+  transition: opacity 100ms ease, transform 120ms ease;
+}
+
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded]:hover
+  > :first-child
+  > svg,
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded]:focus-visible
+  > :first-child
+  > svg {
+  opacity: 1;
+}
+
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded='false']
+  > :first-child
+  > svg {
+  transform: rotate(-90deg);
+}
+
+.eventRow[data-stream-native-disclosure]
+  > :not(.streamSemanticIcon)
+  > :global([data-disclosure-row])[aria-expanded='true']
+  > :first-child
+  > svg {
+  transform: rotate(0deg);
+}
+
+/* Root ToolCallBranch -> ToolRow -> DisclosureRow -> header. Keeping the
+ * direct-child chain prevents a parent tool from restyling nested subcalls. */
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row]) {
+  padding-inline-start: 22px;
+}
+
+/* A non-expandable row needs no disclosure control; its original leading
+ * glyph is hidden because the semantic overlay above now owns that position. */
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row]):not([aria-expanded])
+  > :first-child {
+  display: none;
+}
+
+/* For expandable rows, flatten the old leading slot into the header. Its
+ * first child is the hover-only idle icon; the last svg is the real Harness
+ * chevron, which moves behind title/summary as layout order 4. */
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child {
+  display: contents;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child
+  > :first-child:not(:last-child) {
+  display: none;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :nth-child(n + 3) {
+  flex-grow: 0;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child
+  > svg {
+  position: static;
+  order: 4;
+  flex: none;
+  margin: 0 0 0 6px;
+  opacity: 0;
+  color: var(--dsw-alias-label-secondary);
+  transition: opacity 100ms ease, transform 120ms ease;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]:hover
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]:focus-visible
+  > :first-child
+  > svg {
+  opacity: 1;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded='false']
+  > :first-child
+  > svg {
+  transform: rotate(-90deg);
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded='true']
+  > :first-child
+  > svg {
+  transform: rotate(0deg);
+}
+
+/* Bash is the one built-in Tool view that owns its disclosure row directly
+ * instead of composing ToolRow/DisclosureRow. Apply the same leading/trailing
+ * contract to that row without changing its terminal card implementation. */
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash']) {
+  padding-inline-start: 22px;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash']):not([aria-expanded])
+  > :first-child {
+  display: none;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :first-child {
+  display: contents;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :first-child
+  > :first-child:not(:last-child) {
+  display: none;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :nth-child(n + 3) {
+  flex-grow: 0;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :first-child
+  > svg {
+  position: static;
+  order: 4;
+  flex: none;
+  margin: 0 0 0 6px;
+  opacity: 0;
+  color: var(--dsw-alias-label-secondary);
+  transition: opacity 100ms ease, transform 120ms ease;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]:hover
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]:focus-visible
+  > :first-child
+  > svg {
+  opacity: 1;
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded='false']
+  > :first-child
+  > svg {
+  transform: rotate(-90deg);
+}
+
+.eventRow[data-stream-tool-row]
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded='true']
+  > :first-child
+  > svg {
+  transform: rotate(0deg);
+}
+
+/* Nested ToolCallBranch rows live under the root call's `data-subcalls`
+ * container, so the root-only chain above deliberately cannot reach them.
+ * The plugin owns a stable semantic-icon portal in each nested header because
+ * Harness removes its native icon node when a DisclosureRow opens. */
+.nestedToolSemanticIcon {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 5px;
+  inset-inline-start: 1px;
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+  pointer-events: none;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]:has(> .nestedToolSemanticIcon),
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]:has(> .nestedToolSemanticIcon) {
+  padding-inline-start: 22px;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]:has(> .nestedToolSemanticIcon)
+  > :first-child
+  > :first-child:not(:last-child),
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]:has(> .nestedToolSemanticIcon)
+  > :first-child
+  > :first-child:not(:last-child) {
+  display: none;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :first-child {
+  display: contents;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :nth-child(n + 3),
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :nth-child(n + 3) {
+  flex-grow: 0;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]
+  > :first-child
+  > svg {
+  position: static;
+  order: 4;
+  flex: none;
+  margin: 0 0 0 6px;
+  opacity: 0;
+  color: var(--dsw-alias-label-secondary);
+  transition: opacity 100ms ease, transform 120ms ease;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]:hover
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded]:focus-visible
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]:hover
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded]:focus-visible
+  > :first-child
+  > svg {
+  opacity: 1;
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded='false']
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded='false']
+  > :first-child
+  > svg {
+  transform: rotate(-90deg);
+}
+
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > :global([data-tool])
+  > *
+  > :global([data-disclosure-row])[aria-expanded='true']
+  > :first-child
+  > svg,
+.eventRow[data-stream-tool-row]
+  :global([data-subcalls])
+  > :global([data-chat-call-id])
+  > :global([data-slot='tool.call.toolview'])
+  > *
+  > :global([data-sample='bash'])[aria-expanded='true']
+  > :first-child
+  > svg {
+  transform: rotate(0deg);
+}
+
+@keyframes dsh-codex-stream-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reasoningText {
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+/* MarkdownText applies its own 16px base shorthand on the inner root. Think
+ * should remain a quiet 14px/24px process stream, not inherit the answer's
+ * heavier markdown rhythm. */
+.reasoningText > :global(div) {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.reasoningText :global(p),
+.reasoningText :global(li),
+.reasoningText :global(blockquote),
+.reasoningText :global(strong),
+.reasoningText :global(h1),
+.reasoningText :global(h2),
+.reasoningText :global(h3),
+.reasoningText :global(h4),
+.reasoningText :global(h5),
+.reasoningText :global(h6) {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.reasoningText :global(strong) {
+  font-weight: 400 !important;
+}
+
+.reasoningText :global(h1),
+.reasoningText :global(h2),
+.reasoningText :global(h3),
+.reasoningText :global(h4),
+.reasoningText :global(h5),
+.reasoningText :global(h6) {
+  margin-block: 8px;
+}
+
+.reasoningText[data-stream-state='running'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.think {
+  display: flex;
+  flex-direction: column;
+}
+
+.thinkRow {
+  position: relative;
+  overflow: hidden;
+}
+
+.think[data-state='running'] .thinkRow::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 300px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-bg-base) 60%, transparent) 55%,
+    transparent 100%
+  );
+  animation: dsh-conversation-ui-think-sweep 2.6s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes dsh-conversation-ui-think-sweep {
+  0% { left: -300px; }
+  90%, 100% { left: 100%; }
+}
+
+.thinkLeading {
+  flex-shrink: 0;
+}
+
+.thinkChevron {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.thinkTitle {
+  font-weight: 400;
+}
+
+.thinkSeparator {
+  flex: none;
+  width: 2px;
+  height: 2px;
+  margin: 0 8px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-caption);
+}
+
+.thinkSummary {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thinkSummary[data-follow-end] {
+  text-overflow: clip;
+}
+
+.thinkBody {
+  padding: 4px 0 4px 22px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/*
+ * AnimatedDisclosure chrome: keeps the semantic icon in the leading slot and
+ * places the disclosure chevron after the title/summary, matching Tool rows.
+ */
+.disclosureRoot {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.disclosureRow {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.disclosureLeading {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.disclosureTitle {
+  flex: none;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.disclosureTrailing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  opacity: 0;
+  color: var(--dsw-alias-label-tertiary);
+  transition: opacity 100ms ease;
+}
+
+.disclosureRow:hover .disclosureTrailing,
+.disclosureRow:focus-visible .disclosureTrailing {
+  opacity: 1;
+}
+
+/*
+ * The animated body: one grid track transitions 0fr <-> 1fr, so the height
+ * glides to the body's natural size with no measured pixel target. The direct
+ * child clips to the track; `visibility` (not display) keeps a collapsed body
+ * out of the accessibility tree and tab order while it still measures for the
+ * animation - it flips visible immediately on expand and waits for the height
+ * to collapse before hiding. Rides the deepsuite curve tokens with fallbacks
+ * for standalone composition.
+ */
+.disclosureContent {
+  display: grid;
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    visibility 0s;
+}
+
+.disclosureContent[data-collapsed] {
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    visibility 0s var(--ds-transition-duration, 0.2s);
+}
+
+.disclosureContent > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root,
+  .eventRow {
+    animation: none;
+  }
+
+  .think[data-state='running'] .thinkRow::after {
+    animation: none;
+  }
+
+  .eventRow[data-stream-tool-row][data-stream-progress='active']
+    > :global([data-chat-call-id])
+    > :global([data-slot='tool.call.toolview'])
+    > :global([data-tool])
+    > *
+    > :global([data-disclosure-row])::after,
+  .eventRow[data-stream-tool-row][data-stream-progress='active']
+    > :global([data-chat-call-id])
+    > :global([data-slot='tool.call.toolview'])
+    > *
+    > :global([data-sample='bash'])::after {
+    animation: none;
+  }
+
+  .turnWaiting {
+    background: none;
+    color: var(--dsw-alias-label-secondary);
+    animation: none;
+  }
+
+  .disclosureContent,
+  .disclosureContent[data-collapsed] {
+    transition: none;
+  }
+}
+
+.stopped {
+  align-self: flex-start;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  overflow: hidden;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  margin: -1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+ * Follow host: ordinary document flow. The last text block owns the
+ * conversation scrollport's bottom-follow while the reply reveals
+ * (see useConversationFollow).
+ */
+.follow {
+  min-width: 0;
+}
+
+/*
+ * Trim the half-leading above and below each text block so line boxes hug
+ * the font's ascent/descent edges. `text` edges are used instead of
+ * `cap alphabetic` because assistant text is CJK-heavy and cap-height
+ * trimming would clip ideographic glyphs.
+ */
+@supports (text-box-trim: trim-both) {
+  /* Do not trim blocks containing inline code: a wrapped code chip can be
+   * taller than its first line box, and trimming the parent lets the chip
+   * escape its measured height and collide with the following content. */
+  .root :is(p, h1, h2, h3, h4, h5, h6, blockquote):not(:has(code)) {
+    text-box-trim: trim-both;
+    text-box-edge: text;
+  }
+}

@@ -13,7 +13,7 @@ export const CODEX_PROVIDER = 'openai-codex'
 
 function assertProvider(providerId: string): void {
   if (providerId !== CODEX_PROVIDER) {
-    throw new Error(`@jcy2387/dsh-codex-provider-plugin does not own provider ${JSON.stringify(providerId)}`)
+    throw new Error(`@jcy2387/dsh-codex-provider does not own provider ${JSON.stringify(providerId)}`)
   }
 }
 

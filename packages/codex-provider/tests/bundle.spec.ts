@@ -13,7 +13,7 @@ describe('installable bundle', () => {
     }
     const patch = readFileSync(resolve('cordis.patch.yml'), 'utf8')
 
-    expect(manifest.name).toBe('@jcy2387/dsh-codex-provider-plugin')
+    expect(manifest.name).toBe('@jcy2387/dsh-codex-provider')
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
     expect(manifest.dsh?.client?.platform).toBe('web')
     expect(manifest.exports?.['./client']?.default).toBe('./lib/client.cjs')
@@ -22,7 +22,7 @@ describe('installable bundle', () => {
     expect(manifest.files).not.toContain('lib/client.js')
     expect(manifest.scripts?.prepare).toBe('pnpm run build')
     expect(manifest.scripts?.publint).toContain('--strict')
-    expect(patch).toContain("name: '@jcy2387/dsh-codex-provider-plugin'")
+    expect(patch).toContain("name: '@jcy2387/dsh-codex-provider'")
     expect(patch).not.toContain('@deepseek-ai/dsh-api-remotes')
   })
 })

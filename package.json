@@ -1,130 +1,25 @@
 {
-  "name": "@jcy2387/dsh-codex-provider-plugin",
-  "displayName": "OpenAI Codex Provider",
-  "description": "OpenAI Codex OAuth provider and native settings UI for DeepSeek Harness",
-  "version": "0.1.0-rc.11",
+  "name": "dsh-codex-suite-workspace",
+  "private": true,
+  "description": "Monorepo for DeepSeek Harness Codex Provider and Conversation UI plugins",
+  "version": "0.0.0",
   "author": "jcy2387",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
-  "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
-  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DamonBao/dsh-codex-provider-plugin.git"
+    "url": "git+https://github.com/DamonBao/dsh-codex-suite.git"
   },
-  "homepage": "https://github.com/DamonBao/dsh-codex-provider-plugin#readme",
-  "bugs": {
-    "url": "https://github.com/DamonBao/dsh-codex-provider-plugin/issues"
-  },
-  "main": "lib/index.js",
-  "types": "lib/types/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./lib/types/index.d.ts",
-      "default": "./lib/index.js"
-    },
-    "./client": {
-      "types": "./lib/types/client/index.d.ts",
-      "default": "./lib/client.cjs"
-    },
-    "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
-  },
-  "files": [
-    "lib/index.js",
-    "lib/client.cjs",
-    "lib/client.cjs.map",
-    "lib/types/**/*.d.ts",
-    "cordis.patch.yml",
-    "docs/images/openai-codex-settings.svg",
-    "README.md",
-    "README.zh.md",
-    "LICENSE"
-  ],
-  "scripts": {
-    "build": "node scripts/clean.mjs && tsc -p tsconfig.build.host.json && tsc -p tsconfig.build.client.json && tsdown",
-    "bundle": "tsdown",
-    "check": "pnpm run typecheck && pnpm test && pnpm run build && pnpm run publint",
-    "prepare": "pnpm run build",
-    "prepublishOnly": "pnpm run check",
-    "publint": "publint --strict",
-    "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.host.json --noEmit && tsc -p tsconfig.client.json --noEmit"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "inject": [
-        "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-locale"
-      ],
-      "platform": "web"
-    }
-  },
-  "keywords": [
-    "deepseek-harness",
-    "dsh-plugin",
-    "codex",
-    "chatgpt",
-    "oauth",
-    "llm-provider"
-  ],
+  "homepage": "https://github.com/DamonBao/dsh-codex-suite#readme",
   "license": "MIT",
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-attachment": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-client-connection": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-client-locale": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-client-runtime": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-client-ui-slots": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-credentials": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-host-apiproxy": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-llm": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-llm-pi-ai": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/dsh-settings": ">=0.1.0-rc.6 <0.2.0",
-    "@deepseek-ai/dsh-timeout": ">=0.1.0-rc.5 <0.2.0",
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "@earendil-works/pi-ai": "^0.82.1",
-    "react": "^18.2.0"
-  },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-attachment": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-connection": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-locale": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-credentials": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-host-apiproxy": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-llm": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-llm-pi-ai": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-settings": "0.1.0-rc.8",
-    "@deepseek-ai/dsh-timeout": "0.1.0-rc.8",
-    "@deepseek-ai/schemastery": "3.18.1",
-    "@earendil-works/pi-ai": "0.82.1",
-    "@types/node": "^22.20.0",
-    "@types/react": "~18.3.1",
-    "lightningcss": "^1.32.0",
-    "publint": "^0.3.21",
-    "react": "^18.3.1",
-    "tsdown": "^0.22.2",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
-  },
-  "dependencies": {
-    "undici": "7.29.0"
+  "scripts": {
+    "typecheck": "pnpm --filter @jcy2387/dsh-codex-provider typecheck && pnpm --filter @jcy2387/dsh-conversation-ui typecheck",
+    "test": "pnpm --filter @jcy2387/dsh-codex-provider test && pnpm --filter @jcy2387/dsh-conversation-ui test",
+    "build": "pnpm --filter @jcy2387/dsh-codex-provider build && pnpm --filter @jcy2387/dsh-conversation-ui build",
+    "pack": "pnpm --filter @jcy2387/dsh-codex-provider pack && pnpm --filter @jcy2387/dsh-conversation-ui pack && pnpm --filter @jcy2387/dsh-suite pack",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm --dir packages/all pack --dry-run"
   }
 }

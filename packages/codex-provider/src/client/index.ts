@@ -24,7 +24,7 @@ export const inject = ['slots', 'locale', 'connection']
 
 /** Register one removable, independently navigable Codex settings page. */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), '@jcy2387/dsh-codex-provider-plugin: dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), '@jcy2387/dsh-codex-provider: dictionaries')
   const connection = ctx.get('connection') as ConnectionHandle
   const controller = new CodexAuthCardController(createCodexAuthRpcClient(connection.rpc))
   const face: CodexSettingsInjected = {

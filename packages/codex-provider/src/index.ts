@@ -39,7 +39,7 @@ export type * from './types.ts'
 export { CODEX_PROVIDER, CodexCredentialStore } from './credential-store.ts'
 
 /** Stable Cordis plugin name. */
-export const name = 'llm-openai-codex'
+export const name = 'codex-provider'
 /** Required Host services. Connection is optional so headless profiles still work. */
 export const inject = ['llm', 'credentials', 'settings']
 
@@ -121,7 +121,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
     || streamIdleTimeoutMs <= 0
     || streamIdleTimeoutMs > MAX_TIMER_DELAY_MS) {
     throw new Error(
-      `@jcy2387/dsh-codex-provider-plugin: streamIdleTimeoutMs must be positive and no greater than ${MAX_TIMER_DELAY_MS}`,
+      `@jcy2387/dsh-codex-provider: streamIdleTimeoutMs must be positive and no greater than ${MAX_TIMER_DELAY_MS}`,
     )
   }
   return {
@@ -132,7 +132,7 @@ export function resolveConfig(config: Config): ResolvedConfig {
       ? {}
       : { websocketConnectTimeoutMs: config.websocketConnectTimeoutMs },
     streamIdleTimeoutMs,
-    retryPolicy: resolveRetryPolicy(config.retryPolicy, '@jcy2387/dsh-codex-provider-plugin: retryPolicy'),
+    retryPolicy: resolveRetryPolicy(config.retryPolicy, '@jcy2387/dsh-codex-provider: retryPolicy'),
     ipv6CallbackBridge: config.ipv6CallbackBridge ?? true,
     proactiveRefresh: config.proactiveRefresh ?? true,
     proxyMode: config.proxyMode ?? 'auto',
@@ -180,14 +180,14 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.effect(
     () => () => network.dispose(),
-    '@jcy2387/dsh-codex-provider-plugin: restore network dispatcher',
+    '@jcy2387/dsh-codex-provider: restore network dispatcher',
   )
   const credentials = new CodexCredentialStore(ctx.credentials, resolved.credentialRef)
   const piProvider = openaiCodexProvider()
   assertCodexCatalog(piProvider)
   const piOauth = piProvider.auth.oauth
   if (piOauth === undefined) {
-    throw new Error('@jcy2387/dsh-codex-provider-plugin: Codex provider exposes no OAuth handler')
+    throw new Error('@jcy2387/dsh-codex-provider: Codex provider exposes no OAuth handler')
   }
 
   const authModels = createModels({ credentials })
@@ -239,7 +239,7 @@ export function apply(ctx: Context, config: Config): void {
     resolveAttachments: (): AttachmentStore | undefined => ctx.get('attachments'),
     onReplayDegrade: ({ provider, model, reason }) => {
       ctx.logger('dsh-codex-provider').warn(
-        `llm-openai-codex: unusable replay state on assistant history for route "${provider}/${model}";`
+        `codex-provider: unusable replay state on assistant history for route "${provider}/${model}";`
         + ` sending that message as provider-neutral content (${reason})`,
       )
     },
@@ -266,10 +266,10 @@ export function apply(ctx: Context, config: Config): void {
     cancel: () => auth.cancel(),
     logout: () => auth.logout(),
   }
-  ctx.effect(() => () => auth.dispose(), '@jcy2387/dsh-codex-provider-plugin: drain OAuth')
+  ctx.effect(() => () => auth.dispose(), '@jcy2387/dsh-codex-provider: drain OAuth')
   ctx.effect(
     () => () => { refresher.dispose() },
-    '@jcy2387/dsh-codex-provider-plugin: drain token refresher',
+    '@jcy2387/dsh-codex-provider: drain token refresher',
   )
   // Arm proactive refresh from a credential stored before this Host started.
   void refresher.start()
@@ -280,7 +280,7 @@ export function apply(ctx: Context, config: Config): void {
         (_endpoint, _payload) => handleCodexAuthRpc(rpcService, _endpoint, _payload),
         { authority: 'loopback' },
       ),
-      '@jcy2387/dsh-codex-provider-plugin: account RPC',
+      '@jcy2387/dsh-codex-provider: account RPC',
     )
   })
 }

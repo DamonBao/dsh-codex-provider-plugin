@@ -1,0 +1,6 @@
+# Install both independent plugins as one Suite bundle.
+- insert:
+    - id: codex-provider
+      name: '@jcy2387/dsh-codex-provider'
+    - id: conversation-ui
+      name: '@jcy2387/dsh-conversation-ui'
