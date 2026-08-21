@@ -53,6 +53,8 @@ export const DEFAULT_CREDENTIAL_REF = 'OPENAI_CODEX_OAUTH'
 export const DEFAULT_CODEX_TRANSPORT: Transport = 'sse'
 /** Default maximum idle interval while reading one Codex response stream. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
+/** Default request-level base64 image payload bound required by dsh-llm-pi-ai. */
+const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20 * 1024 * 1024
 
 /** User-configurable provider settings. */
 export interface Config {
@@ -222,6 +224,7 @@ export function apply(ctx: Context, config: Config): void {
     piProvider: codexDispatchProvider(piProvider),
     configuredMaxTokens: new Map(),
     streamIdleTimeoutMs: resolved.streamIdleTimeoutMs,
+    maxRequestImageBytes: DEFAULT_MAX_REQUEST_IMAGE_BYTES,
     retryPolicy: resolved.retryPolicy,
     transport: resolved.transport,
     ...resolved.timeoutMs === undefined ? {} : { timeoutMs: resolved.timeoutMs },
