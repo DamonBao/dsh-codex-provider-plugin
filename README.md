@@ -71,7 +71,7 @@ dsh plugin --profile web add link:$PWD/packages/conversation-ui
 dsh web
 ```
 
-The suite bundle is idempotent: if one plugin is already installed directly, the suite's copy stands down instead of creating a duplicate loader entry.
+Install **either** the suite **or** the individual plugins in a given profile — not both copies of the same plugin. Coexistence does not crash (the suite mounts its plugins inside a nested loader group, which avoids duplicate loader entry ids), but a direct install and the suite's copy share one loader entry: removing either side from the bundle list of a *running* dsh process silently stops that plugin until the next restart. Restart dsh after any bundle-list change.
 
 ## Quick start
 

@@ -71,7 +71,7 @@ dsh plugin --profile web add link:$PWD/packages/conversation-ui
 dsh web
 ```
 
-Suite 组合包是幂等的：若某插件已被直接安装，Suite 内的对应副本会自动让位，不会产生重复的加载项。
+在同一个 profile 里，整套 Suite 和单独插件**二选一**安装，不要让同一插件的两份来源共存。共存不会崩溃（Suite 通过嵌套加载组挂载插件，避免了重复 loader entry id），但直接安装的行与 Suite 的子行会共享同一个加载条目：在**运行中的** dsh 进程里移除任意一侧，对应插件会静默停止，直到下次重启才恢复。变更 bundle 列表后请重启 dsh。
 
 ## 快速开始
 

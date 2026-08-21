@@ -1,11 +1,24 @@
 # Install both independent plugins as one Suite bundle.
 #
-# Keep the children inside a nested loader group. A profile may already contain
-# one of the child bundles (for example after a user first installed the
-# Provider directly); root-level inserts would then produce duplicate loader
-# IDs. The disabled expressions detect an existing direct child row and let the
-# direct bundle own it, while the Suite-owned child runs when no direct row is
-# present.
+# The children live inside a nested loader group so their rows never collide
+# at the profile root level. A profile may also list one of the child bundles
+# directly (the provider or the conversation UI installed on its own); two
+# root-level rows with the same id would abort boot with
+# "duplicate loader entry id". Inside the group the ids coexist instead: the
+# loader maps both rows onto one shared entry and the plugin runs once.
+#
+# Do NOT re-add `disabled: !!js ctx.loader.store[...]` guards here. They never
+# worked — `ctx.loader.store` is the root loader store (it only ever holds the
+# `include` entry), while profile entries live in the include subtree's store,
+# so the expression is always false. Pointing it at the right store would be
+# worse: the entry is registered before `disabled` is evaluated, so the check
+# would always see itself and disable the suite's children unconditionally.
+#
+# Coexistence caveat (loader semantics): while a direct row and the suite's
+# child row share one entry, removing either side from the bundle list of a
+# RUNNING dsh process disposes the shared entry and the plugin silently stops
+# until the next restart. Prefer installing either the suite OR the standalone
+# packages in a profile, and restart dsh after changing the bundle list.
 - insert:
     - id: suite-plugins
       name: cordis:group
@@ -13,7 +26,5 @@
       config:
         - id: codex-provider
           name: '@jcy2387/dsh-codex-provider'
-          disabled: !!js ctx.loader.store['codex-provider'] !== undefined
         - id: conversation-ui
           name: '@jcy2387/dsh-conversation-ui'
-          disabled: !!js ctx.loader.store['conversation-ui'] !== undefined
