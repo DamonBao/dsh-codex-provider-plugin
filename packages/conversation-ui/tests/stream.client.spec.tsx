@@ -1445,6 +1445,55 @@ describe('Turn prelude', () => {
     expect(styleSheet).toMatch(/\.turnWaiting\s*{[^}]*animation:\s*dsh-turn-waiting-shimmer/s)
   })
 
+  it('stops the live processed clock when the session is paused but the turn remains open', async () => {
+    vi.setSystemTime(new Date(30_000))
+    function UserFixture() {
+      return <div>paused user question</div>
+    }
+    const WrappedUser = wrapTurnPreludeNodeView(UserFixture)
+    const userNode = {
+      key: 'user-paused-1',
+      kind: 'user',
+      anchorSeq: 30,
+      location: { kind: 'session' },
+      data: { kind: 'user', seq: 30, time: 30_000, content: [], source: { kind: 'user' } },
+    }
+    const turn = {
+      turn: 3,
+      status: 'open',
+      start: { seq: 29, time: 30_000 },
+      end: undefined,
+    }
+    let running = true
+    const snapshot = () => ({
+      running,
+      chat: {
+        order: [userNode.key],
+        nodes: { get: (key: string) => key === userNode.key ? { ...userNode, location: { kind: 'turn', turn } } : undefined },
+        timeline: { turnOrder: [turn.turn], turns: new Map([[turn.turn, turn]]) },
+      },
+    })
+    const useSession = (selector: (value: ReturnType<typeof snapshot>) => unknown) => selector(snapshot())
+    const view = render(<WrappedUser
+      sessionId="paused-session"
+      node={userNode}
+      useSession={useSession}
+      t={assistantProps('running', []).t}
+    />)
+
+    expect(view.container.querySelector('[data-turn-fold-state="running"]')?.textContent).toContain('已处理 0秒')
+    running = false
+    view.rerender(<WrappedUser
+      sessionId="paused-session"
+      node={userNode}
+      useSession={useSession}
+      t={assistantProps('running', []).t}
+    />)
+    await act(() => vi.advanceTimersByTimeAsync(2_000))
+    expect(view.container.querySelector('[data-turn-fold-state="running"]')).toBeNull()
+    expect(view.queryByText('思考中')).toBeNull()
+  })
+
   it('replaces the waiting placeholder when the first real process node arrives', () => {
     function UserFixture() {
       return <div>the user question</div>
